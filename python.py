@@ -3,6 +3,7 @@ import json
 import aiohttp
 import threading
 import os
+import asyncio
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -22,7 +23,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 BOT_TOKEN = "8844899781:AAEjbqNXXf8R1hSPjutPkIyKXEv2mInzux4"
 ADMIN_ID = 6636620529  # ТВОЙ_ТЕЛЕГРАМ_ID (числом, без кавычек)
 CARD_NUMBER = "5614 6835 8985 1641"  # Твоя карта для приема сумов
-ELDER_API_KEY = "b4c71a41a37ac7e98c69092464e31acf"
+ELDER_API_KEY = "e2e4d97e848f59429355d52148c6163a"
 
 ELDER_API_URL = "https://asosiy.elder.uz/api"
 PRICE_PER_STAR = 210
@@ -149,7 +150,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     elif query.data == "shop_premium":
-        text = "🌟 <b>Цены на Telegram Premium:</b>\n\n🔹 3 месяца — 75,000 сумов\n🔹 6 месяцев — 130,000 сумов\n🔹 12 месяцев — 240,000 сумов"
+        text = "🌟 <b>Цены на Telegram Premium:</b>\n\n🔹 3 месяца — 75,000 сумов\n🔹 6 месяцев — 130,000 суums\n🔹 12 месяцев — 240,000 сумов"
         keyboard = [
             [InlineKeyboardButton("🚀 3 Месяца (75k)", callback_data="buy_prem_fixed_3")],
             [InlineKeyboardButton("🚀 6 Месяцев (130k)", callback_data="buy_prem_fixed_6")],
@@ -397,10 +398,10 @@ async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- ЗАПУСК ПРИЛОЖЕНИЯ ---
+# --- АСИНХРОННЫЙ ЗАПУСК ДЛЯ PYTHON 3.14+ ---
 
-def main():
-    # Запускаем фоновый веб-сервер для прохождения портов на Render
+async def main_async():
+    # Запускаем фоновый веб-сервер для прохождения проверок Render
     threading.Thread(target=run_health_check, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
@@ -432,7 +433,20 @@ def main():
     app.add_handler(CallbackQueryHandler(menu_handler, pattern="^menu_|^shop_"))
 
     print("Бот успешно запущен и готов к автовыдачам!")
-    app.run_polling()
+
+    # Правильная асинхронная инициализация пуллинга без падения потоков
+    await app.initialize()
+    await app.updater.start_polling()
+    await app.start()
+
+    # Поддерживаем активность асинхронного цикла событий
+    while True:
+        await asyncio.sleep(3600)
+
+
+def main():
+    # Создаем чистый Event Loop в главном потоке специально под Python 3.14
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
