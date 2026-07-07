@@ -2,6 +2,8 @@ import logging
 import json
 import asyncio
 import httpx
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -30,6 +32,28 @@ USERS_DB = {}
 REFILL_AMOUNT, CONFIRM_REFILL = range(2)
 BUY_AMOUNT, BUY_USERNAME, BUY_CONFIRM = range(2, 5)
 ADMIN_BAN_ID, ADMIN_UNBAN_ID, ADMIN_MSG_ID, ADMIN_MSG_TEXT = range(5, 9)
+
+
+# --- ФЕЙКОВЫЙ ВЕБ-СЕРВЕР ДЛЯ ОБМАНА RENDER ---
+class WebServerHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(b"Bot is running smoothly!")
+
+    def log_message(self, format, *args):
+        return  # Отключаем лишний спам в логах от пингов Render
+
+
+def run_web_server():
+    # Render передает порт в переменную среды PORT, если ее нет — берем 80
+    import os
+    port = int(os.environ.get("PORT", 80))
+    server = HTTPServer(("0.0.0.0", port), WebServerHandler)
+    logging.info(f"🌐 Фейковый веб-сервер запущен на порту {port} для Render")
+    server.serve_forever()
+
 
 # --- ЛОКАЛИЗАЦИЯ ---
 TEXTS = {
@@ -108,9 +132,7 @@ async def is_user_banned(update: Update) -> bool:
 
 # --- ИНТЕГРАЦИЯ ELDER.UZ API ---
 async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
-    """Отправка запроса на создание заказа на стороне Elder.uz API"""
     service_id = 1 if prod_type == "stars" else 2
-
     payload = {
         "key": ELDER_API_KEY,
         "action": "add",
@@ -118,7 +140,6 @@ async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
         "link": target,
         "quantity": value if prod_type == "stars" else 1
     }
-
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(ELDER_API_URL, data=payload, timeout=20.0)
@@ -238,12 +259,11 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# --- ПОПОЛНЕНИЕ (ИСПРАВЛЕНО ДЛЯ СТАБИЛЬНОСТИ НА RENDER) ---
+# --- ПОПОЛНЕНИЕ (ОБНОВЛЕННЫЙ СТАБИЛЬНЫЙ РЕЖИМ) ---
 async def refill_start_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     u_data = get_user_data(query.from_user.id)
-    # Используем edit_text вместо send_message, чтобы избежать блокировок со стороны Render
     await query.message.edit_text(text=TEXTS[u_data["lang"]]["refill_start"])
     return REFILL_AMOUNT
 
@@ -265,7 +285,6 @@ async def refill_cheque_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u_data = get_user_data(user.id)
     amount = context.user_data.get("refill_amount", 0)
 
-    # Проверка, картинка ли это
     if not (update.message.photo or (
             update.message.document and update.message.document.mime_type.startswith("image/"))):
         await update.message.reply_text(TEXTS[u_data["lang"]]["refill_bad_photo"])
@@ -470,6 +489,11 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ЗАПУСК ---
 def main():
+    # Запускаем фейковый веб-сервер в отдельном потоке
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+
+    # Запускаем самого телеграм-бота
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
