@@ -5,7 +5,7 @@ import threading
 import os
 import asyncio
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -68,7 +68,7 @@ TEXTS = {
         "banned_msg": "❌ Вы заблокированы в этом боте."
     },
     "uz": {
-        "welcome": "👋 Salom, {name}!\nTelegram Stars & Premium do'koniga xush heribsiz.\n\n💰 Sizning balansingiz: {balance:,} so'm",
+        "welcome": "👋 Salom, {name}!\nTelegram Stars & Premium do'koniga xush kelibsiz.\n\n💰 Sizning balansingiz: {balance:,} so'm",
         "btn_shop": "🛍 Xizmatlarni sotib olish",
         "btn_refill": "💳 Balansni to'ldirish",
         "btn_profile": "👤 Shaxsiy kabinet",
@@ -91,7 +91,7 @@ TEXTS = {
         "buy_stars_bad": "❌ Iltimos, yulduzlar sonini to'g'ri kiriting:",
         "buy_no_money": "❌ Mablag' yetarli emas.",
         "buy_username_enter": "✏️ Qabul qiluvchining Telegram Yuzerneymini (@username) yoki ID raqamini kiriting:",
-        "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiymati: <b>{price:,} so'm</b>",
+        "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiяmati: <b>{price:,} so'm</b>",
         "buy_confirm_btn": "✅ Ha, sotib olish",
         "cancel_msg": "Jarayon bekor qilindi.",
         "prem_months": "{value} oylik",
@@ -133,7 +133,7 @@ async def is_user_banned(update: Update) -> bool:
     return False
 
 
-# --- СТАРТ И МЕНЮ ---
+# --- СТАРТ И ИНЛАЙН ГЛАВНОЕ МЕНЮ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_user_banned(update): return ConversationHandler.END
     context.user_data.clear()
@@ -143,21 +143,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = u_data["lang"]
     t = TEXTS[lang]
 
-    reply_keyboard = [
-        [KeyboardButton(t["btn_shop"])],
-        [KeyboardButton(t["btn_refill"]), KeyboardButton(t["btn_profile"])]
+    # Кнопки теперь внутри сообщения (Inline)
+    inline_keyboard = [
+        [InlineKeyboardButton(t["btn_shop"], callback_data="main_shop")],
+        [InlineKeyboardButton(t["btn_refill"], callback_data="main_refill"),
+         InlineKeyboardButton(t["btn_profile"], callback_data="main_profile")]
     ]
-    markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
+    markup = InlineKeyboardMarkup(inline_keyboard)
     text = t["welcome"].format(name=user.first_name, balance=u_data['balance'])
 
+    # Принудительно очищаем старую нижнюю клавиатуру, если она осталась
     if update.message:
         await update.message.reply_text(text, reply_markup=markup)
+        # Отправляем невидимое удаление нижних кнопок
+        msg = await update.message.reply_text(".", reply_markup=ReplyKeyboardRemove())
+        await msg.delete()
     else:
         await update.callback_query.message.reply_text(text, reply_markup=markup)
     return ConversationHandler.END
 
 
-# --- ПРОФИЛЬ (ЯЗЫКИ ТУТ) ---
+# --- ПРОФИЛЬ И СМЕНА ЯЗЫКА ---
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_user_banned(update): return
     user_id = update.effective_user.id
@@ -167,7 +173,8 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = t["profile_text"].format(user_id=user_id, balance=u_data['balance'])
     inline_keyboard = [
         [InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="setlang_uz"),
-         InlineKeyboardButton("🇷🇺 Русский", callback_data="setlang_ru")]
+         InlineKeyboardButton("🇷🇺 Русский", callback_data="setlang_ru")],
+        [InlineKeyboardButton(t["btn_back"], callback_data="back_to_main")]
     ]
 
     if update.message:
@@ -177,66 +184,77 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                                       parse_mode="HTML")
 
 
-async def text_menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await is_user_banned(update): return
-    text = update.message.text
-    user_id = update.effective_user.id
-    u_data = get_user_data(user_id)
-    lang = u_data["lang"]
-
-    if text in [TEXTS["ru"]["btn_profile"], TEXTS["uz"]["btn_profile"]]:
-        await show_profile(update, context)
-    elif text in [TEXTS["ru"]["btn_shop"], TEXTS["uz"]["btn_shop"]]:
-        t = TEXTS[lang]
-        keyboard = [
-            [InlineKeyboardButton(t["shop_stars_cat"], callback_data="shop_stars")],
-            [InlineKeyboardButton(t["shop_prem_cat"], callback_data="shop_premium")]
-        ]
-        await update.message.reply_text(t["shop_main"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-    elif text in [TEXTS["ru"]["btn_refill"], TEXTS["uz"]["btn_refill"]]:
-        return await refill_start(update, context)
-
-
+# --- ОБРАБОТЧИК ВСЕХ ИНЛАЙН КНОПОК ---
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_user_banned(update): return
     query = update.callback_query
     await query.answer()
     u_data = get_user_data(query.from_user.id)
-
-    if query.data.startswith("setlang_"):
-        u_data["lang"] = query.data.split("_")[1]
-        t = TEXTS[u_data["lang"]]
-        markup = ReplyKeyboardMarkup(
-            [[KeyboardButton(t["btn_shop"])], [KeyboardButton(t["btn_refill"]), KeyboardButton(t["btn_profile"])]],
-            resize_keyboard=True)
-        await query.message.reply_text("✅ Изменено / O'zgartirildi", reply_markup=markup)
-        await show_profile(update, context)
-        return
-
     lang = u_data["lang"]
     t = TEXTS[lang]
 
+    # Смена языка
+    if query.data.startswith("setlang_"):
+        u_data["lang"] = query.data.split("_")[1]
+        await show_profile(update, context)
+        return
+
+    # Нажатие на "Назад"
+    if query.data == "back_to_main":
+        inline_keyboard = [
+            [InlineKeyboardButton(t["btn_shop"], callback_data="main_shop")],
+            [InlineKeyboardButton(t["btn_refill"], callback_data="main_refill"),
+             InlineKeyboardButton(t["btn_profile"], callback_data="main_profile")]
+        ]
+        text = t["welcome"].format(name=query.from_user.first_name, balance=u_data['balance'])
+        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard))
+        return
+
+    # Главное меню: Купить услуги
+    if query.data == "main_shop":
+        keyboard = [
+            [InlineKeyboardButton(t["shop_stars_cat"], callback_data="shop_stars")],
+            [InlineKeyboardButton(t["shop_prem_cat"], callback_data="shop_premium")],
+            [InlineKeyboardButton(t["btn_back"], callback_data="back_to_main")]
+        ]
+        await query.message.edit_text(t["shop_main"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+
+    # Главное меню: Личный кабинет
+    if query.data == "main_profile":
+        await show_profile(update, context)
+        return
+
+    # Категория Stars
     if query.data == "shop_stars":
         keyboard = [
             [InlineKeyboardButton("⭐ 50 Stars (10,500)", callback_data="buy_stars_fixed_50")],
             [InlineKeyboardButton("⭐ 100 Stars (21,000)", callback_data="buy_stars_fixed_100")],
-            [InlineKeyboardButton(t["stars_manual"], callback_data="buy_stars_manual")]
+            [InlineKeyboardButton(t["stars_manual"], callback_data="buy_stars_manual")],
+            [InlineKeyboardButton(t["btn_back"], callback_data="main_shop")]
         ]
         await query.message.edit_text(t["stars_desc"].format(price=PRICE_PER_STAR),
                                       reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-    elif query.data == "shop_premium":
+        return
+
+    # Категория Premium
+    if query.data == "shop_premium":
         keyboard = [
             [InlineKeyboardButton("🚀 3 Oy / Mes (75k)", callback_data="buy_prem_fixed_3")],
             [InlineKeyboardButton("🚀 6 Oy / Mes (130k)", callback_data="buy_prem_fixed_6")],
-            [InlineKeyboardButton("🚀 12 Oy / Mes (240k)", callback_data="buy_prem_fixed_12")]
+            [InlineKeyboardButton("🚀 12 Oy / Mes (240k)", callback_data="buy_prem_fixed_12")],
+            [InlineKeyboardButton(t["btn_back"], callback_data="main_shop")]
         ]
         await query.message.edit_text(t["prem_desc"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
 
 
 # --- ПОПОЛНЕНИЕ И ПОКУПКА ---
-async def refill_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u_data = get_user_data(update.effective_user.id)
-    await context.bot.send_message(chat_id=update.effective_user.id, text=TEXTS[u_data["lang"]]["refill_start"])
+async def refill_start_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    u_data = get_user_data(query.from_user.id)
+    await context.bot.send_message(chat_id=query.from_user.id, text=TEXTS[u_data["lang"]]["refill_start"])
     return REFILL_AMOUNT
 
 
@@ -414,16 +432,11 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_caption("🔴 Отклонено!")
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    return await start(update, context)
-
-
 # --- ЗАПУСК ---
 async def main_async():
     threading.Thread(target=run_health_check, daemon=True).start()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Сначала регистрируем команды сброса, чтобы они перебивали всё
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
 
@@ -443,7 +456,7 @@ async def main_async():
     ))
 
     app.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(refill_start, pattern="^menu_refill$")],
+        entry_points=[CallbackQueryHandler(refill_start_from_inline, pattern="^main_refill$")],
         states={
             REFILL_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, refill_amount_rcv)],
             CONFIRM_REFILL: [MessageHandler(filters.PHOTO | filters.Document.IMAGE, refill_cheque_rcv)]
@@ -463,8 +476,7 @@ async def main_async():
 
     app.add_handler(CallbackQueryHandler(admin_menu_cb, pattern="^admin_list_users$"))
     app.add_handler(CallbackQueryHandler(admin_pay_buttons, pattern="^adm_pay_"))
-    app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_menu_router))
+    app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_|^main_|^back_to_main$"))
 
     await app.initialize()
     await app.updater.start_polling()
