@@ -472,7 +472,7 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text("❌ Ошибка: недостаточно средств.")
         return ConversationHandler.END
 
-    await query.message.edit_text("🔄 Отправка запроса поставщику Elder.uz...")
+    await query.message.edit_text("🔄 Подождите секундочку")
     success = await send_order_to_elder(prod_type, value, target)
 
     if success:
