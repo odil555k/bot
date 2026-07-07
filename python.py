@@ -338,7 +338,7 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- ПАНЕЛЬ АДМИНИСТРАТОРА ---
+# --- ПАНЕЛЬ АДМИНИСТРАТОРА (ОБНОВЛЕННАЯ) ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
     context.user_data.clear()
@@ -350,13 +350,14 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("🛠 <b>Панель администратора</b>", reply_markup=InlineKeyboardMarkup(keyboard),
                                     parse_mode="HTML")
-    return ConversationHandler.END
+    return ADMIN_BAN_ID  # Входим в общий админский ConversationHandler
 
 
 async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query.from_user.id != ADMIN_ID: return
+    if query.from_user.id != ADMIN_ID: return ADMIN_BAN_ID
     await query.answer()
+
     if query.data == "admin_list_users":
         rep = "👥 <b>Список пользователей:</b>\n\n"
         for uid, info in USERS_DB.items():
@@ -369,49 +370,66 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"───────────────────\n"
             )
         await query.message.reply_text(rep or "База данных пуста.", parse_mode="HTML")
+        return ADMIN_BAN_ID
 
+    elif query.data == "admin_ban_start":
+        await query.message.reply_text("Введите ID пользователя для БЛОКИРОВКИ:")
+        return ADMIN_BAN_ID
 
-async def admin_ban_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.message.reply_text("Введите ID для бана:")
+    elif query.data == "admin_unban_start":
+        await query.message.reply_text("Введите ID пользователя для РАЗБЛОКИРОВКИ:")
+        return ADMIN_UNBAN_ID
+
+    elif query.data == "admin_msg_start":
+        await query.message.reply_text("Введите ID получателя сообщения:")
+        return ADMIN_MSG_ID
+
     return ADMIN_BAN_ID
 
 
 async def admin_ban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    get_user_data(int(update.message.text.strip()))["is_banned"] = True
-    await update.message.reply_text("Забанен.")
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    txt = update.message.text.strip()
+    if txt.isdigit():
+        get_user_data(int(txt))["is_banned"] = True
+        await update.message.reply_text(f"⛔ Пользователь с ID {txt} успешно ЗАБЛОКИРОВАН.")
+    else:
+        await update.message.reply_text("❌ Пожалуйста, введите корректный цифровой ID.")
     return ConversationHandler.END
-
-
-async def admin_unban_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.message.reply_text("Введите ID для разбана:")
-    return ADMIN_UNBAN_ID
 
 
 async def admin_unban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    get_user_data(int(update.message.text.strip()))["is_banned"] = False
-    await update.message.reply_text("Разбанен.")
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    txt = update.message.text.strip()
+    if txt.isdigit():
+        get_user_data(int(txt))["is_banned"] = False
+        await update.message.reply_text(f"🟢 Пользователь с ID {txt} РАЗБЛОКИРОВАН.")
+    else:
+        await update.message.reply_text("❌ Пожалуйста, введите корректный цифровой ID.")
     return ConversationHandler.END
 
 
-async def admin_msg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.message.reply_text("Введите ID получателя:")
-    return ADMIN_MSG_ID
-
-
 async def admin_msg_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["adm_tgt"] = int(update.message.text.strip())
-    await update.message.reply_text("Введите текст сообщения:")
-    return ADMIN_MSG_TEXT
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    txt = update.message.text.strip()
+    if txt.isdigit():
+        context.user_data["adm_tgt"] = int(txt)
+        await update.message.reply_text("Введите текст сообщения для отправки:")
+        return ADMIN_MSG_TEXT
+    else:
+        await update.message.reply_text("❌ Введите корректный ID получателя.")
+        return ADMIN_MSG_ID
 
 
 async def admin_msg_text_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    tgt = context.user_data.get("adm_tgt")
     try:
-        await context.bot.send_message(chat_id=context.user_data["adm_tgt"],
-                                       text=f"✉️ <b>Сообщение от админа:</b>\n\n{update.message.text}",
+        await context.bot.send_message(chat_id=tgt, text=f"✉️ <b>Сообщение от админа:</b>\n\n{update.message.text}",
                                        parse_mode="HTML")
-        await update.message.reply_text("Отправлено!")
+        await update.message.reply_text("✅ Сообщение успешно доставлено пользователю!")
     except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}")
+        await update.message.reply_text(f"❌ Ошибка отправки: {e}")
     return ConversationHandler.END
 
 
@@ -436,19 +454,26 @@ async def main_async():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_panel))
 
+    # Единый ConversationHandler для всей административной логики
     app.add_handler(ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(admin_ban_start, pattern="^admin_ban_start$"),
-            CallbackQueryHandler(admin_unban_start, pattern="^admin_unban_start$"),
-            CallbackQueryHandler(admin_msg_start, pattern="^admin_msg_start$")
-        ],
+        entry_points=[CommandHandler("admin", admin_panel)],
         states={
-            ADMIN_BAN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_ban_rcv)],
-            ADMIN_UNBAN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unban_rcv)],
-            ADMIN_MSG_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)],
-            ADMIN_MSG_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)]
+            ADMIN_BAN_ID: [
+                CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_ban_rcv)
+            ],
+            ADMIN_UNBAN_ID: [
+                CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unban_rcv)
+            ],
+            ADMIN_MSG_ID: [
+                CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)
+            ],
+            ADMIN_MSG_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)
+            ]
         },
         fallbacks=[CommandHandler("start", start)]
     ))
@@ -472,7 +497,6 @@ async def main_async():
         fallbacks=[CommandHandler("start", start)]
     ))
 
-    app.add_handler(CallbackQueryHandler(admin_menu_cb, pattern="^admin_list_users$"))
     app.add_handler(CallbackQueryHandler(admin_pay_buttons, pattern="^adm_pay_"))
     app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_|^main_|^back_to_main$"))
 
