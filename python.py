@@ -2,6 +2,7 @@ import logging
 import json
 import asyncio
 import httpx
+import sqlite3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
@@ -26,12 +27,111 @@ ELDER_API_KEY = "e2e4d97e848f59429355d52148c6163a"
 ELDER_API_URL = "https://asosiy.elder.uz/api"
 
 PRICE_PER_STAR = 210
-USERS_DB = {}
 
 # Состояния диалогов
 REFILL_AMOUNT, CONFIRM_REFILL = range(2)
 BUY_AMOUNT, BUY_USERNAME, BUY_CONFIRM = range(2, 5)
 ADMIN_BAN_ID, ADMIN_UNBAN_ID, ADMIN_MSG_ID, ADMIN_MSG_TEXT = range(5, 9)
+
+# --- РАБОТА С БАЗОЙ ДАННЫХ SQLITE ---
+DB_FILE = "bot_database.db"
+
+
+def init_db():
+    """Создает таблицу пользователей, если её еще нет."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS users
+                   (
+                       user_id
+                       INTEGER
+                       PRIMARY
+                       KEY,
+                       username
+                       TEXT,
+                       name
+                       TEXT,
+                       balance
+                       INTEGER
+                       DEFAULT
+                       0,
+                       lang
+                       TEXT
+                       DEFAULT
+                       'ru',
+                       is_banned
+                       INTEGER
+                       DEFAULT
+                       0
+                   )
+                   """)
+    conn.commit()
+    conn.close()
+
+
+def get_user_data(user_id, username="", name=""):
+    """Возвращает данные пользователя из БД. Если его нет, создает запись."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance, username, name, lang, is_banned FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+
+    if row is None:
+        # Регистрация нового юзера
+        cursor.execute(
+            "INSERT INTO users (user_id, username, name, balance, lang, is_banned) VALUES (?, ?, ?, 0, 'ru', 0)",
+            (user_id, username or "", name or "")
+        )
+        conn.commit()
+        res = {"balance": 0, "username": username or "", "name": name or "", "lang": "ru", "is_banned": False}
+    else:
+        res = {
+            "balance": row[0],
+            "username": row[1],
+            "name": row[2],
+            "lang": row[3],
+            "is_banned": bool(row[4])
+        }
+    conn.close()
+    return res
+
+
+def update_user_balance(user_id, amount):
+    """Изменяет баланс пользователя (может принимать как положительные, так и отрицательные числа)."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+    conn.close()
+
+
+def update_user_lang(user_id, lang):
+    """Обновляет языковую настройку пользователя."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
+    conn.commit()
+    conn.close()
+
+
+def update_user_ban(user_id, is_banned):
+    """Блокирует или разблокирует пользователя."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (1 if is_banned else 0, user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_all_users():
+    """Возвращает список всех зарегистрированных пользователей."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, username, balance, is_banned FROM users")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 
 # --- ФЕЙКОВЫЙ ВЕБ-СЕРВЕР ДЛЯ ОБМАНА RENDER ---
@@ -43,11 +143,10 @@ class WebServerHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is running smoothly!")
 
     def log_message(self, format, *args):
-        return  # Отключаем лишний спам в логах от пингов Render
+        return
 
 
 def run_web_server():
-    # Render передает порт в переменную среды PORT, если ее нет — берем 80
     import os
     port = int(os.environ.get("PORT", 80))
     server = HTTPServer(("0.0.0.0", port), WebServerHandler)
@@ -112,16 +211,11 @@ TEXTS = {
 }
 
 
-def get_user_data(user_id, username="", name=""):
-    if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"balance": 0, "username": username, "name": name, "lang": "ru", "is_banned": False}
-    return USERS_DB[user_id]
-
-
 async def is_user_banned(update: Update) -> bool:
     uid = update.effective_user.id
-    if USERS_DB.get(uid, {}).get("is_banned", False):
-        msg = TEXTS[USERS_DB[uid]["lang"]]["banned_msg"]
+    u_data = get_user_data(uid)
+    if u_data["is_banned"]:
+        msg = TEXTS[u_data["lang"]]["banned_msg"]
         if update.message:
             await update.message.reply_text(msg)
         elif update.callback_query:
@@ -210,7 +304,8 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     t = TEXTS[u_data["lang"]]
 
     if query.data.startswith("setlang_"):
-        u_data["lang"] = query.data.split("_")[1]
+        new_lang = query.data.split("_")[1]
+        update_user_lang(query.from_user.id, new_lang)
         await show_profile(update, context)
         return
 
@@ -259,7 +354,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# --- ПОПОЛНЕНИЕ (ОБНОВЛЕННЫЙ СТАБИЛЬНЫЙ РЕЖИМ) ---
+# --- ПОПОЛНЕНИЕ ---
 async def refill_start_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -372,7 +467,7 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success = await send_order_to_elder(prod_type, value, target)
 
     if success:
-        u_data["balance"] -= price
+        update_user_balance(query.from_user.id, -price)
         await query.message.edit_text(f"✅ Успешно! Заказ на {value} {prod_type} для {target} отправлен и оплачен.")
         try:
             await context.bot.send_message(chat_id=ADMIN_ID,
@@ -409,9 +504,10 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "admin_list_users":
         rep = "👥 <b>Список пользователей:</b>\n\n"
-        for uid, info in USERS_DB.items():
-            username = f"@{info['username']}" if info.get('username') else "нет"
-            rep += f"• <b>ID:</b> <code>{uid}</code>\n  <b>Юзернейм:</b> {username}\n  <b>Баланс:</b> {info['balance']:,} сум\n  <b>Бан:</b> {'⛔ Да' if info['is_banned'] else '🟢 Нет'}\n───────────────────\n"
+        all_users = get_all_users()
+        for uid, username, balance, is_banned in all_users:
+            u_name = f"@{username}" if username else "нет"
+            rep += f"• <b>ID:</b> <code>{uid}</code>\n  <b>Юзернейм:</b> {u_name}\n  <b>Баланс:</b> {balance:,} сум\n  <b>Бан:</b> {'⛔ Да' if is_banned else '🟢 Нет'}\n───────────────────\n"
         await query.message.reply_text(rep or "База данных пуста.", parse_mode="HTML")
         return ADMIN_BAN_ID
     elif query.data == "admin_ban_start":
@@ -430,7 +526,7 @@ async def admin_ban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
     txt = update.message.text.strip()
     if txt.isdigit():
-        get_user_data(int(txt))["is_banned"] = True
+        update_user_ban(int(txt), True)
         await update.message.reply_text(f"⛔ ID {txt} успешно ЗАБЛОКИРОВАН.")
     else:
         await update.message.reply_text("❌ Введите корректный цифровой ID.")
@@ -441,7 +537,7 @@ async def admin_unban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
     txt = update.message.text.strip()
     if txt.isdigit():
-        get_user_data(int(txt))["is_banned"] = False
+        update_user_ban(int(txt), False)
         await update.message.reply_text(f"🟢 ID {txt} РАЗБЛОКИРОВАН.")
     else:
         await update.message.reply_text("❌ Введите корректный цифровой ID.")
@@ -477,7 +573,7 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     if query.data.startswith("adm_pay_yes_"):
         _, _, _, cid, amt = query.data.split("_")
-        get_user_data(int(cid))["balance"] += int(amt)
+        update_user_balance(int(cid), int(amt))
         await query.message.edit_caption("🟢 Одобрено!")
         try:
             await context.bot.send_message(chat_id=int(cid), text="🎉 Баланс пополнен!")
@@ -489,6 +585,9 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ЗАПУСК ---
 def main():
+    # Инициализируем базу данных SQLite перед стартом
+    init_db()
+
     # Запускаем фейковый веб-сервер в отдельном потоке
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
