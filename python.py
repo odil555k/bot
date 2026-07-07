@@ -91,7 +91,7 @@ TEXTS = {
         "buy_stars_bad": "❌ Iltimos, yulduzlar sonini to'g'ri kiriting:",
         "buy_no_money": "❌ Mablag' yetarli emas.",
         "buy_username_enter": "✏️ Qabul qiluvchining Telegram Yuzerneymini (@username) yoki ID raqamini kiriting:",
-        "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiяmati: <b>{price:,} so'm</b>",
+        "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiymati: <b>{price:,} so'm</b>",
         "buy_confirm_btn": "✅ Ha, sotib olish",
         "cancel_msg": "Jarayon bekor qilindi.",
         "prem_months": "{value} oylik",
@@ -143,7 +143,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = u_data["lang"]
     t = TEXTS[lang]
 
-    # Кнопки теперь внутри сообщения (Inline)
     inline_keyboard = [
         [InlineKeyboardButton(t["btn_shop"], callback_data="main_shop")],
         [InlineKeyboardButton(t["btn_refill"], callback_data="main_refill"),
@@ -152,10 +151,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     markup = InlineKeyboardMarkup(inline_keyboard)
     text = t["welcome"].format(name=user.first_name, balance=u_data['balance'])
 
-    # Принудительно очищаем старую нижнюю клавиатуру, если она осталась
     if update.message:
         await update.message.reply_text(text, reply_markup=markup)
-        # Отправляем невидимое удаление нижних кнопок
         msg = await update.message.reply_text(".", reply_markup=ReplyKeyboardRemove())
         await msg.delete()
     else:
@@ -193,13 +190,11 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = u_data["lang"]
     t = TEXTS[lang]
 
-    # Смена языка
     if query.data.startswith("setlang_"):
         u_data["lang"] = query.data.split("_")[1]
         await show_profile(update, context)
         return
 
-    # Нажатие на "Назад"
     if query.data == "back_to_main":
         inline_keyboard = [
             [InlineKeyboardButton(t["btn_shop"], callback_data="main_shop")],
@@ -210,7 +205,6 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard))
         return
 
-    # Главное меню: Купить услуги
     if query.data == "main_shop":
         keyboard = [
             [InlineKeyboardButton(t["shop_stars_cat"], callback_data="shop_stars")],
@@ -220,12 +214,10 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(t["shop_main"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # Главное меню: Личный кабинет
     if query.data == "main_profile":
         await show_profile(update, context)
         return
 
-    # Категория Stars
     if query.data == "shop_stars":
         keyboard = [
             [InlineKeyboardButton("⭐ 50 Stars (10,500)", callback_data="buy_stars_fixed_50")],
@@ -237,7 +229,6 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                       reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # Категория Premium
     if query.data == "shop_premium":
         keyboard = [
             [InlineKeyboardButton("🚀 3 Oy / Mes (75k)", callback_data="buy_prem_fixed_3")],
@@ -367,10 +358,17 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.from_user.id != ADMIN_ID: return
     await query.answer()
     if query.data == "admin_list_users":
-        rep = "👥 <b>Список пользователей:</b>\n"
+        rep = "👥 <b>Список пользователей:</b>\n\n"
         for uid, info in USERS_DB.items():
-            rep += f"• ID: <code>{uid}</code> | Бал: {info['balance']} сум | Бан: {info['is_banned']}\n"
-        await query.message.reply_text(rep or "Пусто.", parse_mode="HTML")
+            username = f"@{info['username']}" if info.get('username') else "нет"
+            rep += (
+                f"• <b>ID:</b> <code>{uid}</code>\n"
+                f"  <b>Юзернейм:</b> {username}\n"
+                f"  <b>Баланс:</b> {info['balance']:,} сум\n"
+                f"  <b>Бан:</b> {'⛔ Да' if info['is_banned'] else '🟢 Нет'}\n"
+                f"───────────────────\n"
+            )
+        await query.message.reply_text(rep or "База данных пуста.", parse_mode="HTML")
 
 
 async def admin_ban_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
