@@ -1,10 +1,7 @@
 import logging
 import json
-import aiohttp
-import threading
-import os
 import asyncio
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import httpx  # Используем httpx для синхронного/асинхронного вызова API в обычном боте
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -24,10 +21,9 @@ BOT_TOKEN = "8844899781:AAHO-vgDPn4z5kJi5wCAX4o47OBQSwenkEU"
 ADMIN_ID = 6636620529
 CARD_NUMBER = "5614 6835 8985 1641"
 ELDER_API_KEY = "e2e4d97e848f59429355d52148c6163a"
-
 ELDER_API_URL = "https://asosiy.elder.uz/api"
-PRICE_PER_STAR = 210
 
+PRICE_PER_STAR = 210
 USERS_DB = {}
 
 # Состояния диалогов
@@ -56,15 +52,11 @@ TEXTS = {
         "refill_invoice": "Заявка на пополнение: <b>{amount:,} сумов</b>\n\nПереведите ровно эту сумму на карту:\n<code>{card}</code>\n\nПосле оплаты отправьте фото/скриншот чека в этот чат.",
         "refill_bad_photo": "❌ Пожалуйста, отправьте именно картинку или скриншот чека.",
         "refill_done": "⏳ Ваш чек отправлен администратору на проверку.",
-        "refill_err": "❌ Ошибка отправки чека.",
         "buy_stars_enter": "✏️ Сколько Telegram Stars (звёзд) вы хотите купить? Введите число:",
-        "buy_stars_bad": "❌ Введите правильное целое число звёзд:",
         "buy_no_money": "❌ Недостаточно средств. Заказ стоит {price:,} сумов, у вас {balance:,} сумов.",
         "buy_username_enter": "✏️ Введите Telegram Юзернейм (@username) или ID получателя:",
         "buy_confirm_title": "📝 <b>Подтверждение покупки</b>\n\n📦 Товар: {prod_name}\n👤 Получатель: {target}\n💵 Стоимость: <b>{price:,} сумов</b>\n\nСписать деньги с баланса?",
         "buy_confirm_btn": "✅ Да, купить",
-        "cancel_msg": "Действие отменено.",
-        "prem_months": "{value} мес.",
         "banned_msg": "❌ Вы заблокированы в этом боте."
     },
     "uz": {
@@ -86,33 +78,14 @@ TEXTS = {
         "refill_invoice": "To'ldirish uchun ariza: <b>{amount:,} so'm</b>\n\nUshbu summani aynan mana shu kartaga o'tkazing:\n<code>{card}</code>\n\nTarixiy to'lovdan so'ng chekning rasmi yoki skrinshotini shu chatga yuboring.",
         "refill_bad_photo": "❌ Iltimos, aynan rasm yoki chek skrinshotini yuboring.",
         "refill_done": "⏳ Sizning chekingiz administratorga tekshirish uchun yuborildi.",
-        "refill_err": "❌ Chek yuborishda xatolik.",
         "buy_stars_enter": "✏️ Qancha Telegram Stars (yulduz) sotib olmoqchisiz?",
-        "buy_stars_bad": "❌ Iltimos, yulduzlar sonini to'g'ri kiriting:",
         "buy_no_money": "❌ Mablag' yetarli emas.",
         "buy_username_enter": "✏️ Qabul qiluvchining Telegram Yuzerneymini (@username) yoki ID raqamini kiriting:",
         "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiymati: <b>{price:,} so'm</b>",
         "buy_confirm_btn": "✅ Ha, sotib olish",
-        "cancel_msg": "Jarayon bekor qilindi.",
-        "prem_months": "{value} oylik",
         "banned_msg": "❌ Siz ushbu botda bloklangansiz."
     }
 }
-
-
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"OK")
-
-    def log_message(self, format, *args): return
-
-
-def run_health_check():
-    server = HTTPServer(("0.0.0.0", int(os.environ.get("PORT", 8000))), HealthCheckHandler)
-    server.serve_forever()
 
 
 def get_user_data(user_id, username="", name=""):
@@ -133,34 +106,62 @@ async def is_user_banned(update: Update) -> bool:
     return False
 
 
-# --- СТАРТ И ИНЛАЙН ГЛАВНОЕ МЕНЮ ---
+# --- ИНТЕГРАЦИЯ ELDER.UZ API ---
+async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
+    """Отправка запроса на создание заказа на стороне Elder.uz API"""
+    # Определяем ID пакетов (замени на реальные ID из личного кабинета Elder если нужно)
+    service_id = 1 if prod_type == "stars" else 2
+
+    payload = {
+        "key": ELDER_API_KEY,
+        "action": "add",
+        "service": service_id,
+        "link": target,
+        "quantity": value if prod_type == "stars" else 1
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(ELDER_API_URL, data=payload, timeout=20.0)
+            if response.status_code == 200:
+                res_json = response.json()
+                if "order" in res_json or res_json.get("status") == "success":
+                    logging.info(f"Успешный заказ на Elder.uz: {res_json}")
+                    return True
+                else:
+                    logging.error(f"Elder API вернул ошибку: {res_json}")
+            else:
+                logging.error(f"Ошибка Elder API HTTP статус: {response.status_code}")
+    except Exception as e:
+        logging.error(f"Критическая ошибка при связи с Elder.uz: {e}")
+    return False
+
+
+# --- МЕНЮ И КОМАНДЫ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_user_banned(update): return ConversationHandler.END
     context.user_data.clear()
 
     user = update.effective_user
     u_data = get_user_data(user.id, user.username, user.first_name)
-    lang = u_data["lang"]
-    t = TEXTS[lang]
+    t = TEXTS[u_data["lang"]]
 
     inline_keyboard = [
         [InlineKeyboardButton(t["btn_shop"], callback_data="main_shop")],
         [InlineKeyboardButton(t["btn_refill"], callback_data="main_refill"),
          InlineKeyboardButton(t["btn_profile"], callback_data="main_profile")]
     ]
-    markup = InlineKeyboardMarkup(inline_keyboard)
     text = t["welcome"].format(name=user.first_name, balance=u_data['balance'])
 
     if update.message:
-        await update.message.reply_text(text, reply_markup=markup)
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard))
         msg = await update.message.reply_text(".", reply_markup=ReplyKeyboardRemove())
         await msg.delete()
     else:
-        await update.callback_query.message.reply_text(text, reply_markup=markup)
+        await update.callback_query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard))
     return ConversationHandler.END
 
 
-# --- ПРОФИЛЬ И СМЕНА ЯЗЫКА ---
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_user_banned(update): return
     user_id = update.effective_user.id
@@ -181,14 +182,12 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                                       parse_mode="HTML")
 
 
-# --- ОБРАБОТЧИК ВСЕХ ИНЛАЙН КНОПОК ---
 async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_user_banned(update): return
     query = update.callback_query
     await query.answer()
     u_data = get_user_data(query.from_user.id)
-    lang = u_data["lang"]
-    t = TEXTS[lang]
+    t = TEXTS[u_data["lang"]]
 
     if query.data.startswith("setlang_"):
         u_data["lang"] = query.data.split("_")[1]
@@ -240,7 +239,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# --- ПОПОЛНЕНИЕ И ПОКУПКА ---
+# --- ПОПОЛНЕНИЕ ---
 async def refill_start_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -275,6 +274,7 @@ async def refill_cheque_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# --- ПОКУПКА ---
 async def buy_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -332,13 +332,39 @@ async def buy_username_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     u_data = get_user_data(query.from_user.id)
-    u_data["balance"] -= context.user_data.get("buy_price", 0)
-    await query.message.edit_text("✅ Заказ успешно оплачен и передан в обработку!")
+
+    prod_type = context.user_data.get("buy_type")
+    value = context.user_data.get("buy_value")
+    target = context.user_data.get("target_username")
+    price = context.user_data.get("buy_price", 0)
+
+    # Проверка баланса прямо перед покупкой
+    if u_data["balance"] < price:
+        await query.message.edit_text("❌ Ошибка: недостаточно средств.")
+        return ConversationHandler.END
+
+    # Попытка отправить заказ на Elder.uz
+    await query.message.edit_text("🔄 Отправка запроса поставщику Elder.uz...")
+    success = await send_order_to_elder(prod_type, value, target)
+
+    if success:
+        u_data["balance"] -= price
+        await query.message.edit_text(f"✅ Успешно! Заказ на {value} {prod_type} для {target} отправлен и оплачен.")
+        # Оповещение администратора
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID,
+                                           text=f"🚀 Авто-заказ через API!\nЮзер: {query.from_user.id}\nТовар: {value} {prod_type}\nКуда: {target}")
+        except Exception:
+            pass
+    else:
+        await query.message.edit_text(
+            "❌ Произошла ошибка на стороне API поставщика. Деньги не списаны. Обратитесь к админу.")
+
     context.user_data.clear()
     return ConversationHandler.END
 
 
-# --- ПАНЕЛЬ АДМИНИСТРАТОРА (ОБНОВЛЕННАЯ) ---
+# --- АДМИН ПАНЕЛЬ ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
     context.user_data.clear()
@@ -350,7 +376,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("🛠 <b>Панель администратора</b>", reply_markup=InlineKeyboardMarkup(keyboard),
                                     parse_mode="HTML")
-    return ADMIN_BAN_ID  # Входим в общий админский ConversationHandler
+    return ADMIN_BAN_ID
 
 
 async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -362,28 +388,18 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rep = "👥 <b>Список пользователей:</b>\n\n"
         for uid, info in USERS_DB.items():
             username = f"@{info['username']}" if info.get('username') else "нет"
-            rep += (
-                f"• <b>ID:</b> <code>{uid}</code>\n"
-                f"  <b>Юзернейм:</b> {username}\n"
-                f"  <b>Баланс:</b> {info['balance']:,} сум\n"
-                f"  <b>Бан:</b> {'⛔ Да' if info['is_banned'] else '🟢 Нет'}\n"
-                f"───────────────────\n"
-            )
+            rep += f"• <b>ID:</b> <code>{uid}</code>\n  <b>Юзернейм:</b> {username}\n  <b>Баланс:</b> {info['balance']:,} сум\n  <b>Бан:</b> {'⛔ Да' if info['is_banned'] else '🟢 Нет'}\n───────────────────\n"
         await query.message.reply_text(rep or "База данных пуста.", parse_mode="HTML")
         return ADMIN_BAN_ID
-
     elif query.data == "admin_ban_start":
         await query.message.reply_text("Введите ID пользователя для БЛОКИРОВКИ:")
         return ADMIN_BAN_ID
-
     elif query.data == "admin_unban_start":
         await query.message.reply_text("Введите ID пользователя для РАЗБЛОКИРОВКИ:")
         return ADMIN_UNBAN_ID
-
     elif query.data == "admin_msg_start":
         await query.message.reply_text("Введите ID получателя сообщения:")
         return ADMIN_MSG_ID
-
     return ADMIN_BAN_ID
 
 
@@ -392,9 +408,9 @@ async def admin_ban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip()
     if txt.isdigit():
         get_user_data(int(txt))["is_banned"] = True
-        await update.message.reply_text(f"⛔ Пользователь с ID {txt} успешно ЗАБЛОКИРОВАН.")
+        await update.message.reply_text(f"⛔ ID {txt} успешно ЗАБЛОКИРОВАН.")
     else:
-        await update.message.reply_text("❌ Пожалуйста, введите корректный цифровой ID.")
+        await update.message.reply_text("❌ Введите корректный цифровой ID.")
     return ConversationHandler.END
 
 
@@ -403,9 +419,9 @@ async def admin_unban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip()
     if txt.isdigit():
         get_user_data(int(txt))["is_banned"] = False
-        await update.message.reply_text(f"🟢 Пользователь с ID {txt} РАЗБЛОКИРОВАН.")
+        await update.message.reply_text(f"🟢 ID {txt} РАЗБЛОКИРОВАН.")
     else:
-        await update.message.reply_text("❌ Пожалуйста, введите корректный цифровой ID.")
+        await update.message.reply_text("❌ Введите корректный цифровой ID.")
     return ConversationHandler.END
 
 
@@ -427,7 +443,7 @@ async def admin_msg_text_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         await context.bot.send_message(chat_id=tgt, text=f"✉️ <b>Сообщение от админа:</b>\n\n{update.message.text}",
                                        parse_mode="HTML")
-        await update.message.reply_text("✅ Сообщение успешно доставлено пользователю!")
+        await update.message.reply_text("✅ Сообщение успешно доставлено!")
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка отправки: {e}")
     return ConversationHandler.END
@@ -449,31 +465,21 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --- ЗАПУСК ---
-async def main_async():
-    threading.Thread(target=run_health_check, daemon=True).start()
+def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
 
-    # Единый ConversationHandler для всей административной логики
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("admin", admin_panel)],
         states={
-            ADMIN_BAN_ID: [
-                CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_ban_rcv)
-            ],
-            ADMIN_UNBAN_ID: [
-                CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unban_rcv)
-            ],
-            ADMIN_MSG_ID: [
-                CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)
-            ],
-            ADMIN_MSG_TEXT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)
-            ]
+            ADMIN_BAN_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
+                           MessageHandler(filters.TEXT & ~filters.COMMAND, admin_ban_rcv)],
+            ADMIN_UNBAN_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
+                             MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unban_rcv)],
+            ADMIN_MSG_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
+                           MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)],
+            ADMIN_MSG_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)]
         },
         fallbacks=[CommandHandler("start", start)]
     ))
@@ -500,11 +506,9 @@ async def main_async():
     app.add_handler(CallbackQueryHandler(admin_pay_buttons, pattern="^adm_pay_"))
     app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_|^main_|^back_to_main$"))
 
-    await app.initialize()
-    await app.updater.start_polling()
-    await app.start()
-    while True: await asyncio.sleep(3600)
+    # Обычный пуллинг, как ты просил
+    app.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main_async())
+    main()
