@@ -23,7 +23,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 BOT_TOKEN = "8844899781:AAHO-vgDPn4z5kJi5wCAX4o47OBQSwenkEU"
 ADMIN_ID = 6636620529
 CARD_NUMBER = "5614 6835 8985 1641"
-ELDER_API_KEY = "60c5ea48d40a93662e2a3f6600ae3b03"
+ELDER_API_KEY = "60c5ea48d40a93662e2a3f6600ae3b03"  # Убедись, что этот ключ получен в боте @elderstarsbot через /api
 ELDER_API_URL = "https://asosiy.elder.uz/api"
 
 PRICE_PER_STAR = 210
@@ -38,7 +38,6 @@ DB_FILE = "bot_database.db"
 
 
 def init_db():
-    """Создает таблицу пользователей, если её еще нет."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -71,14 +70,12 @@ def init_db():
 
 
 def get_user_data(user_id, username="", name=""):
-    """Возвращает данные пользователя из БД. Если его нет, создает запись."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT balance, username, name, lang, is_banned FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
 
     if row is None:
-        # Регистрация нового юзера
         cursor.execute(
             "INSERT INTO users (user_id, username, name, balance, lang, is_banned) VALUES (?, ?, ?, 0, 'ru', 0)",
             (user_id, username or "", name or "")
@@ -98,7 +95,6 @@ def get_user_data(user_id, username="", name=""):
 
 
 def update_user_balance(user_id, amount):
-    """Изменяет баланс пользователя (может принимать как положительные, так и отрицательные числа)."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
@@ -107,7 +103,6 @@ def update_user_balance(user_id, amount):
 
 
 def update_user_lang(user_id, lang):
-    """Обновляет языковую настройку пользователя."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
@@ -116,7 +111,6 @@ def update_user_lang(user_id, lang):
 
 
 def update_user_ban(user_id, is_banned):
-    """Блокирует или разблокирует пользователя."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET is_banned = ? WHERE user_id = ?", (1 if is_banned else 0, user_id))
@@ -125,7 +119,6 @@ def update_user_ban(user_id, is_banned):
 
 
 def get_all_users():
-    """Возвращает список всех зарегистрированных пользователей."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, username, balance, is_banned FROM users")
@@ -177,7 +170,7 @@ TEXTS = {
         "refill_done": "⏳ Ваш чек отправлен администратору на проверку.",
         "buy_stars_enter": "✏️ Сколько Telegram Stars (звёзд) вы хотите купить? Введите число:",
         "buy_no_money": "❌ Недостаточно средств. Заказ стоит {price:,} сумов, у вас {balance:,} сумов.",
-        "buy_username_enter": "✏️ Введите Telegram Юзернейм (@username) или ID получателя:",
+        "buy_username_enter": "✏️ Введите Telegram Юзернейм получателя (БЕЗ знака @, например: durov):",
         "buy_confirm_title": "📝 <b>Подтверждение покупки</b>\n\n📦 Товар: {prod_name}\n👤 Получатель: {target}\n💵 Стоимость: <b>{price:,} сумов</b>\n\nСписать деньги с баланса?",
         "buy_confirm_btn": "✅ Да, купить",
         "banned_msg": "❌ Вы заблокированы в этом боте."
@@ -203,7 +196,7 @@ TEXTS = {
         "refill_done": "⏳ Sizning chekingiz administratorga tekshirish uchun yuborildi.",
         "buy_stars_enter": "✏️ Qancha Telegram Stars (yulduz) sotib olmoqchisiz?",
         "buy_no_money": "❌ Mablag' yetarli emas.",
-        "buy_username_enter": "✏️ Qabul qiluvchining Telegram Yuzerneymini (@username) yoki ID raqamini kiriting:",
+        "buy_username_enter": "✏️ Qabul qiluvchining Telegram юзернеймини kiriting (@ belgisiz, masalan: durov):",
         "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiymati: <b>{price:,} so'm</b>",
         "buy_confirm_btn": "✅ Ha, sotib olish",
         "banned_msg": "❌ Siz ushbu botda bloklangansiz."
@@ -224,30 +217,46 @@ async def is_user_banned(update: Update) -> bool:
     return False
 
 
-# --- ИНТЕГРАЦИЯ ELDER.UZ API ---
+# --- НОВАЯ ИНТЕГРАЦИЯ ELDER.UZ API (ПО НАСТОЯЩЕЙ ДОКУМЕНТАЦИИ) ---
 async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
-    service_id = 1 if prod_type == "stars" else 2
-    payload = {
-        "key": ELDER_API_KEY,
-        "action": "add",
-        "service": service_id,
-        "link": target,
-        "quantity": value if prod_type == "stars" else 1
+    # Очищаем юзернейм от символа @, если пользователь его ввел
+    target = target.replace("@", "").strip()
+
+    headers = {
+        "X-Api-Key": ELDER_API_KEY,
+        "Content-Type": "application/json"
     }
+
+    if prod_type == "stars":
+        url = f"{ELDER_API_URL}/stars/buy"
+        payload = {
+            "username": target,
+            "amount": value
+        }
+    else:  # premium
+        url = f"{ELDER_API_URL}/premium/buy"
+        payload = {
+            "username": target,
+            "months": value
+        }
+
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(ELDER_API_URL, data=payload, timeout=20.0)
+            logging.info(f"Отправка запроса на {url} с телом {payload}")
+            response = await client.post(url, headers=headers, json=payload, timeout=25.0)
+
             if response.status_code == 200:
                 res_json = response.json()
-                if "order" in res_json or res_json.get("status") == "success":
-                    logging.info(f"Успешный заказ на Elder.uz: {res_json}")
+                if res_json.get("success") is True:
+                    logging.info(f"Успешный ответ от Elder API: {res_json}")
                     return True
                 else:
-                    logging.error(f"Elder API вернул ошибку: {res_json}")
+                    logging.error(f"Elder API вернул success=False: {res_json}")
             else:
-                logging.error(f"Ошибка Elder API HTTP статус: {response.status_code}")
+                logging.error(f"Ошибка Elder API. Статус-код: {response.status_code}, Ответ: {response.text}")
     except Exception as e:
-        logging.error(f"Критическая ошибка при связи с Elder.uz: {e}")
+        logging.error(f"Критическая ошибка при отправке запроса к Elder API: {e}")
+
     return False
 
 
@@ -476,7 +485,7 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     else:
         await query.message.edit_text(
-            "❌ Произошла ошибка на стороне API поставщика. Деньги не списаны. Обратитесь к админу.")
+            "❌ Произошла ошибка на стороне API поставщика. Деньги не списаны. Проверьте баланс на Elder.uz или обратитесь к админу.")
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -585,14 +594,11 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ЗАПУСК ---
 def main():
-    # Инициализируем базу данных SQLite перед стартом
     init_db()
 
-    # Запускаем фейковый веб-сервер в отдельном потоке
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
 
-    # Запускаем самого телеграм-бота
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
