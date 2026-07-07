@@ -28,14 +28,16 @@ ELDER_API_KEY = "e2e4d97e848f59429355d52148c6163a"
 ELDER_API_URL = "https://asosiy.elder.uz/api"
 PRICE_PER_STAR = 210
 
-# Имитация базы данных
-USERS_DB = {}  # {user_id: {"balance": 0, "username": "...", "lang": "ru"/"uz"}}
+# Имитация базы данных (добавлен флаг исключения "is_banned" и имя для админки)
+USERS_DB = {}  # {user_id: {"balance": 0, "username": "...", "name": "...", "lang": None, "is_banned": False}}
 
 # Стейты для диалогов
 REFILL_AMOUNT, CONFIRM_REFILL = range(2)
 BUY_AMOUNT, BUY_USERNAME, BUY_CONFIRM = range(2, 5)
+# Стейты для админки
+ADMIN_BAN_ID, ADMIN_UNBAN_ID, ADMIN_MSG_ID, ADMIN_MSG_TEXT = range(5, 9)
 
-# --- СЛОВАРЬ ЛОКАЛИЗАЦИИ (РУССКИЙ И УЗБЕКСКИЙ НА ЛАТИНИЦЕ) ---
+# --- СЛОВАРЬ ЛОКАЛИЗАЦИИ ---
 TEXTS = {
     "ru": {
         "welcome": "👋 Привет, {name}!\nДобро пожаловать в магазин Telegram Stars & Premium.\n\n💰 Ваш баланс: {balance:,} сумов",
@@ -67,7 +69,8 @@ TEXTS = {
         "buy_api_success": "✅ <b>Успешно отправлено!</b>\n\nТовар отправлен на аккаунт {target}.\nСписано: {price:,} сумов. Остаток: {balance:,} сумов.",
         "buy_api_fail": "⏳ <b>Заказ принят в обработку</b>\n\nТовар будет доставлен оператором в течение нескольких минут.",
         "cancel_msg": "Действие отменено.",
-        "prem_months": "{value} мес."
+        "prem_months": "{value} мес.",
+        "banned_msg": "❌ Вы заблокированы в этом боте."
     },
     "uz": {
         "welcome": "👋 Salom, {name}!\nTelegram Stars & Premium do'koniga xush kelibsiz.\n\n💰 Sizning balansingiz: {balance:,} so'm",
@@ -99,7 +102,8 @@ TEXTS = {
         "buy_api_success": "✅ <b>Muvaffaqiyatli yuborildi!</b>\n\nMahsulot {target} akkauntiga taqdim etildi.\nYechildi: {price:,} so'm. Qoldiq: {balance:,} so'm.",
         "buy_api_fail": "⏳ <b>Buyurtma ishlov berishga qabul qilindi</b>\n\nMahsulot bir necha daqiqa ichida operator tomonidan yetkazib beriladi.",
         "cancel_msg": "Jarayon bekor qilindi.",
-        "prem_months": "{value} oylik"
+        "prem_months": "{value} oylik",
+        "banned_msg": "❌ Siz ushbu botda bloklangansiz."
     }
 }
 
@@ -124,7 +128,7 @@ def run_health_check():
     server.serve_forever()
 
 
-# --- VSПОМОГАТЕЛЬНЫЕ ФУНКЦИИ API (Elder Stars) ---
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ API (Elder Stars) ---
 
 async def buy_stars_via_api(username: str, amount: int) -> bool:
     url = f"{ELDER_API_URL}/stars/buy"
@@ -154,19 +158,54 @@ async def buy_premium_via_api(username: str, months: int) -> bool:
         return False
 
 
-def get_user_data(user_id, username=""):
+def get_user_data(user_id, username="", name=""):
+    is_new = False
     if user_id not in USERS_DB:
-        USERS_DB[user_id] = {"balance": 0, "username": username, "lang": None}
+        USERS_DB[user_id] = {"balance": 0, "username": username, "name": name, "lang": None, "is_banned": False}
+        is_new = True
     if username and USERS_DB[user_id]["username"] != username:
         USERS_DB[user_id]["username"] = username
-    return USERS_DB[user_id]
+    if name and USERS_DB[user_id]["name"] != name:
+        USERS_DB[user_id]["name"] = name
+    return USERS_DB[user_id], is_new
+
+
+# --- ПРОВЕРКА НА БЛОКИРОВКУ ---
+async def is_user_banned(update: Update) -> bool:
+    user_id = update.effective_user.id
+    u_data, _ = get_user_data(user_id)
+    if u_data.get("is_banned", False):
+        lang = u_data["lang"] if u_data["lang"] else "ru"
+        msg = TEXTS[lang]["banned_msg"]
+        if update.message:
+            await update.message.reply_text(msg)
+        elif update.callback_query:
+            await update.callback_query.answer(msg, show_alert=True)
+        return True
+    return False
 
 
 # --- ЛОГИКА БОТА ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return
+
     user = update.effective_user
-    u_data = get_user_data(user.id, user.username)
+    u_data, is_new = get_user_data(user.id, user.username, user.first_name)
+
+    # Если зашел абсолютно новый пользователь — отправляем уведомление админу
+    if is_new and user.id != ADMIN_ID:
+        username_text = f"@{user.username}" if user.username else "Нет юзернейма"
+        admin_alert = (
+            f"🔔 <b>Новый пользователь запустил бота!</b>\n\n"
+            f"👤 Имя: {user.first_name}\n"
+            f"🔗 Юзернейм: {username_text}\n"
+            f"🆔 ID: <code>{user.id}</code>"
+        )
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_alert, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"Не удалось отправить уведомление админу: {e}")
 
     if not u_data["lang"]:
         text = "🌐 Tilni tanlang / Выберите язык:"
@@ -198,10 +237,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return
+
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
 
     if query.data.startswith("setlang_"):
         selected_lang = query.data.split("_")[1]
@@ -254,10 +295,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- ДИАЛОГ РУЧНОГО ПОПОЛНЕНИЯ БАЛАНСА ЧЕРЕЗ ЧЕК ---
 
 async def refill_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return ConversationHandler.END
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
 
     await query.message.edit_text(TEXTS[lang]["refill_start"])
@@ -265,8 +307,9 @@ async def refill_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def refill_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return ConversationHandler.END
     user_id = update.effective_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
     t = TEXTS[lang]
 
@@ -286,8 +329,9 @@ async def refill_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def refill_cheque_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return ConversationHandler.END
     user = update.effective_user
-    u_data = get_user_data(user.id)
+    u_data, _ = get_user_data(user.id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
     t = TEXTS[lang]
 
@@ -333,11 +377,12 @@ async def refill_cheque_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- ДИАЛОГ АВТО-ПОКУПКИ ТОВАРА ---
 
 async def buy_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return ConversationHandler.END
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
     t = TEXTS[lang]
 
@@ -365,8 +410,9 @@ async def buy_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def buy_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return ConversationHandler.END
     user_id = update.effective_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
     t = TEXTS[lang]
 
@@ -389,8 +435,9 @@ async def buy_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def buy_username_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return ConversationHandler.END
     user_id = update.effective_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
     t = TEXTS[lang]
 
@@ -410,10 +457,11 @@ async def buy_username_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await is_user_banned(update): return ConversationHandler.END
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
     t = TEXTS[lang]
 
@@ -445,7 +493,135 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- ОБРАБОТЧИК КНОПОК ОДОБРЕНИЯ/ОТКЛОНЕНИЯ ДЛЯ АДМИНИСТРАТОРА ---
+# --- УПРАВЛЕНИЕ ДЛЯ АДМИНИСТРАТОРА (Блокировка, сообщения и список) ---
+
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Вызов админ-панели через команду /admin"""
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        return
+
+    text = "🛠 <b>Панель администратора</b>\n\nВыберите необходимое действие:"
+    keyboard = [
+        [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_list_users")],
+        [InlineKeyboardButton("🚫 Блокировать ID", callback_data="admin_ban_start")],
+        [InlineKeyboardButton("🟢 Разблокировать ID", callback_data="admin_unban_start")],
+        [InlineKeyboardButton("✉️ Отправить сообщение клиенту", callback_data="admin_msg_start")],
+        [InlineKeyboardButton("❌ Закрыть", callback_data="admin_close")]
+    ]
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def admin_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("Доступ запрещен.")
+        return
+
+    data = query.data
+    await query.answer()
+
+    if data == "admin_close":
+        await query.message.delete()
+    elif data == "admin_list_users":
+        if not USERS_DB:
+            await query.message.reply_text("📭 В базе данных пока нет пользователей.")
+            return
+
+        report = "👥 <b>Список всех пользователей бота:</b>\n\n"
+        for uid, info in USERS_DB.items():
+            username_text = f"@{info['username']}" if info['username'] else "Нет юзернейма"
+            status = "🔴 ЗАБЛОКИРОВАН" if info.get("is_banned") else "🟢 Активен"
+            report += (
+                f"👤 <b>Имя:</b> {info['name']}\n"
+                f"🆔 <b>ID:</b> <code>{uid}</code>\n"
+                f"🔗 <b>Юзернейм:</b> {username_text}\n"
+                f"💰 <b>Баланс:</b> {info['balance']:,} сумов\n"
+                f"⚡ <b>Статус:</b> {status}\n"
+                f"-------------------------\n"
+            )
+        # Отправляем новое сообщение со списком, чтобы не перегружать инлайн-кнопки
+        await query.message.reply_text(report, parse_mode="HTML")
+
+    elif data == "admin_ban_start":
+        await query.message.edit_text("✏️ Введите Telegram ID пользователя, которого нужно <b>заблокировать</b>:",
+                                      parse_mode="HTML")
+        return ADMIN_BAN_ID
+    elif data == "admin_unban_start":
+        await query.message.edit_text("✏️ Введите Telegram ID пользователя, которого нужно <b>разблокировать</b>:",
+                                      parse_mode="HTML")
+        return ADMIN_UNBAN_ID
+    elif data == "admin_msg_start":
+        await query.message.edit_text(
+            "✏️ Введите Telegram ID пользователя, которому хотите <b>отправить сообщение</b>:", parse_mode="HTML")
+        return ADMIN_MSG_ID
+
+
+async def admin_ban_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    target_id_text = update.message.text.strip()
+
+    if not target_id_text.isdigit():
+        await update.message.reply_text("❌ ID должен состоять только из цифр. Попробуйте еще раз:")
+        return ADMIN_BAN_ID
+
+    target_id = int(target_id_text)
+    u_data, _ = get_user_data(target_id)
+    u_data["is_banned"] = True
+
+    await update.message.reply_text(f"🔴 Пользователь с ID <code>{target_id}</code> успешно <b>заблокирован</b>.",
+                                    parse_mode="HTML")
+    return ConversationHandler.END
+
+
+async def admin_unban_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    target_id_text = update.message.text.strip()
+
+    if not target_id_text.isdigit():
+        await update.message.reply_text("❌ ID должен состоять только из цифр. Попробуйте еще раз:")
+        return ADMIN_UNBAN_ID
+
+    target_id = int(target_id_text)
+    u_data, _ = get_user_data(target_id)
+    u_data["is_banned"] = False
+
+    await update.message.reply_text(f"🟢 Пользователь с ID <code>{target_id}</code> успешно <b>разблокирован</b>.",
+                                    parse_mode="HTML")
+    return ConversationHandler.END
+
+
+async def admin_msg_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    target_id_text = update.message.text.strip()
+
+    if not target_id_text.isdigit():
+        await update.message.reply_text("❌ ID должен состоять только из цифр. Попробуйте еще раз:")
+        return ADMIN_MSG_ID
+
+    context.user_data["admin_target_msg_id"] = int(target_id_text)
+    await update.message.reply_text("✏️ Теперь введите текст сообщения, которое нужно отправить пользователю:")
+    return ADMIN_MSG_TEXT
+
+
+async def admin_msg_text_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    msg_text = update.message.text
+    target_id = context.user_data.get("admin_target_msg_id")
+
+    try:
+        formatted_msg = f"✉️ <b>Сообщение от администратора:</b>\n\n{msg_text}"
+        await context.bot.send_message(chat_id=target_id, text=formatted_msg, parse_mode="HTML")
+        await update.message.reply_text(f"✅ Сообщение успешно отправлено пользователю <code>{target_id}</code>.",
+                                        parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Не удалось отправить сообщение. Ошибка: {e}")
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# --- ОБРАБОТЧИК КНОПОК ОДОБРЕНИЯ/ОТКЛОНЕНИЯ ДЛЯ АДМИНИСТРАТОРА ЧЕКОВ ---
 
 async def admin_buttons_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -457,7 +633,7 @@ async def admin_buttons_handler(update: Update, context: ContextTypes.DEFAULT_TY
         client_id = int(client_id)
         amount = int(amount)
 
-        c_data = get_user_data(client_id)
+        c_data, _ = get_user_data(client_id)
         c_data["balance"] += amount
         c_lang = c_data["lang"] if c_data["lang"] else "ru"
 
@@ -481,7 +657,7 @@ async def admin_buttons_handler(update: Update, context: ContextTypes.DEFAULT_TY
     elif data.startswith("adm_pay_no_"):
         await query.answer()
         client_id = int(data.split("_")[3])
-        c_data = get_user_data(client_id)
+        c_data, _ = get_user_data(client_id)
         c_lang = c_data["lang"] if c_data["lang"] else "ru"
 
         new_caption = (
@@ -504,7 +680,7 @@ async def admin_buttons_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    u_data = get_user_data(user_id)
+    u_data, _ = get_user_data(user_id)
     lang = u_data["lang"] if u_data["lang"] else "ru"
 
     await query.answer(TEXTS[lang]["cancel_msg"])
@@ -539,9 +715,23 @@ async def main_async():
         fallbacks=[CallbackQueryHandler(cancel_action, pattern="^cancel_action$")]
     )
 
+    # Конверсация для Админ-панели
+    admin_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_menu_callback, pattern="^admin_")],
+        states={
+            ADMIN_BAN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_ban_id_rcv)],
+            ADMIN_UNBAN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unban_id_rcv)],
+            ADMIN_MSG_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)],
+            ADMIN_MSG_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)]
+        },
+        fallbacks=[CommandHandler("admin", admin_panel)]
+    )
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(refill_conv)
     app.add_handler(buy_conv)
+    app.add_handler(admin_conv)
     app.add_handler(CallbackQueryHandler(admin_buttons_handler, pattern="^adm_pay_"))
     app.add_handler(CallbackQueryHandler(cancel_action, pattern="^cancel_action$"))
     app.add_handler(CallbackQueryHandler(menu_handler, pattern="^menu_|^shop_|^setlang_"))
