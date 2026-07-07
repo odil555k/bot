@@ -20,7 +20,7 @@ from telegram.ext import (
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8844899781:AAEjbqNXXf8R1hSPjutPkIyKXEv2mInzux4"
+BOT_TOKEN = "8844899781:AAHO-vgDPn4z5kJi5wCAX4o47OBQSwenkEU"
 ADMIN_ID = 6636620529
 CARD_NUMBER = "5614 6835 8985 1641"
 ELDER_API_KEY = "e2e4d97e848f59429355d52148c6163a"
