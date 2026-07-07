@@ -1,7 +1,7 @@
 import logging
 import json
 import asyncio
-import httpx  # Используем httpx для синхронного/асинхронного вызова API в обычном боте
+import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -109,7 +109,6 @@ async def is_user_banned(update: Update) -> bool:
 # --- ИНТЕГРАЦИЯ ELDER.UZ API ---
 async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
     """Отправка запроса на создание заказа на стороне Elder.uz API"""
-    # Определяем ID пакетов (замени на реальные ID из личного кабинета Elder если нужно)
     service_id = 1 if prod_type == "stars" else 2
 
     payload = {
@@ -239,12 +238,13 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# --- ПОПОЛНЕНИЕ ---
+# --- ПОПОЛНЕНИЕ (ИСПРАВЛЕНО ДЛЯ СТАБИЛЬНОСТИ НА RENDER) ---
 async def refill_start_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     u_data = get_user_data(query.from_user.id)
-    await context.bot.send_message(chat_id=query.from_user.id, text=TEXTS[u_data["lang"]]["refill_start"])
+    # Используем edit_text вместо send_message, чтобы избежать блокировок со стороны Render
+    await query.message.edit_text(text=TEXTS[u_data["lang"]]["refill_start"])
     return REFILL_AMOUNT
 
 
@@ -264,6 +264,13 @@ async def refill_cheque_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     u_data = get_user_data(user.id)
     amount = context.user_data.get("refill_amount", 0)
+
+    # Проверка, картинка ли это
+    if not (update.message.photo or (
+            update.message.document and update.message.document.mime_type.startswith("image/"))):
+        await update.message.reply_text(TEXTS[u_data["lang"]]["refill_bad_photo"])
+        return CONFIRM_REFILL
+
     fid = update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
     kb = [[InlineKeyboardButton("✅ Odobrish", callback_data=f"adm_pay_yes_{user.id}_{amount}"),
            InlineKeyboardButton("❌ Rad etish", callback_data=f"adm_pay_no_{user.id}")]]
@@ -283,7 +290,7 @@ async def buy_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "buy_stars_manual":
         context.user_data["buy_type"] = "stars"
-        await query.message.reply_text(t["buy_stars_enter"])
+        await query.message.edit_text(t["buy_stars_enter"])
         return BUY_AMOUNT
 
     _, prod_type, _, value = data.split("_")
@@ -338,19 +345,16 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = context.user_data.get("target_username")
     price = context.user_data.get("buy_price", 0)
 
-    # Проверка баланса прямо перед покупкой
     if u_data["balance"] < price:
         await query.message.edit_text("❌ Ошибка: недостаточно средств.")
         return ConversationHandler.END
 
-    # Попытка отправить заказ на Elder.uz
     await query.message.edit_text("🔄 Отправка запроса поставщику Elder.uz...")
     success = await send_order_to_elder(prod_type, value, target)
 
     if success:
         u_data["balance"] -= price
         await query.message.edit_text(f"✅ Успешно! Заказ на {value} {prod_type} для {target} отправлен и оплачен.")
-        # Оповещение администратора
         try:
             await context.bot.send_message(chat_id=ADMIN_ID,
                                            text=f"🚀 Авто-заказ через API!\nЮзер: {query.from_user.id}\nТовар: {value} {prod_type}\nКуда: {target}")
@@ -506,7 +510,6 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_pay_buttons, pattern="^adm_pay_"))
     app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_|^main_|^back_to_main$"))
 
-    # Обычный пуллинг, как ты просил
     app.run_polling()
 
 
