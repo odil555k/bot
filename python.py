@@ -28,11 +28,10 @@ ELDER_API_URL = "https://asosiy.elder.uz/api"
 
 PRICE_PER_STAR = 210
 
-# Состояния диалогов (оставили только пользовательские, админку убрали отсюда)
+# Состояния диалогов
 REFILL_AMOUNT, CONFIRM_REFILL = range(2)
 BUY_AMOUNT, BUY_USERNAME, BUY_CONFIRM = range(2, 5)
 
-# --- РАБОТА С БАЗОЙ ДАННЫХ SQLITE ---
 DB_FILE = "bot_database.db"
 
 
@@ -106,7 +105,7 @@ def update_user_ban(user_id, is_banned):
 def get_all_users():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id, username, balance, is_banned FROM users")
+    cursor.execute("SELECT user_id, username, name, balance, is_banned FROM users")
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -466,7 +465,7 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- АБСОЛЮТНО НЕЗАВИСИМАЯ АДМИН ПАНЕЛЬ ---
+# --- АДМИН ПАНЕЛЬ ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
 
@@ -515,9 +514,11 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         rep = f"👥 <b>Все пользователи вашего бота (Страница {page + 1}/{total_pages}):</b>\n"
         rep += f"Всего человек запустили бота: <b>{total_users}</b>\n\n"
 
-        for uid, username, balance, is_banned in users_page:
+        for uid, username, name, balance, is_banned in users_page:
             u_name = f"@{username}" if username else "нет юзернейма"
-            rep += f"• <b>ID:</b> <code>{uid}</code> | {u_name}\n  <b>Баланс:</b> {balance:,} сум | <b>Бан:</b> {'⛔' if is_banned else '🟢'}\n───────────────────\n"
+            u_real_name = name if name else "Без имени"
+            # Выводим Имя, Юзернейм и ID в удобном формате
+            rep += f"• 👤 <b>{u_real_name}</b> ({u_name})\n  <b>ID:</b> <code>{uid}</code> | <b>Баланс:</b> {balance:,} сум | <b>Бан:</b> {'⛔' if is_banned else '🟢'}\n───────────────────\n"
 
         nav_buttons = []
         if page > 0:
@@ -527,7 +528,6 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
         nav_buttons.append(InlineKeyboardButton("❌ Закрыть", callback_data="admin_close"))
 
-        # Переводим кнопки в строки
         kb = []
         if len(nav_buttons) > 1 and nav_buttons[-1].text == "❌ Закрыть":
             kb.append(nav_buttons[:-1])
@@ -545,9 +545,7 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 async def cmd_setbal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     if not context.args or len(context.args) < 2:
-        await update.message.reply_text(
-            "❌ Ошибка. Формат: <code>/setbal [ID] [сумма]</code>\nПример: <code>/setbal 6636620529 10000</code>",
-            parse_mode="HTML")
+        await update.message.reply_text("❌ Ошибка. Формат: <code>/setbal [ID] [сумма]</code>", parse_mode="HTML")
         return
 
     tgt_id, amt_str = context.args[0], context.args[1]
@@ -570,48 +568,34 @@ async def cmd_setbal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    if not context.args:
-        await update.message.reply_text("❌ Укажите ID. Пример: `/ban 12345678`", parse_mode="HTML")
-        return
+    if not context.args: return
     tgt = context.args[0]
     if tgt.isdigit():
         update_user_ban(int(tgt), True)
-        await update.message.reply_text(f"⛔ Пользователь {tgt} успешно ЗАБЛОКИРОВАН.")
-    else:
-        await update.message.reply_text("❌ Неверный ID.")
+        await update.message.reply_text(f"⛔ Пользователь {tgt} ЗАБЛОКИРОВАН.")
 
 
 async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    if not context.args:
-        await update.message.reply_text("❌ Укажите ID. Пример: `/unban 12345678`", parse_mode="HTML")
-        return
+    if not context.args: return
     tgt = context.args[0]
     if tgt.isdigit():
         update_user_ban(int(tgt), False)
-        await update.message.reply_text(f"🟢 Пользователь {tgt} успешно РАЗБЛОКИРОВАН.")
-    else:
-        await update.message.reply_text("❌ Неверный ID.")
+        await update.message.reply_text(f"🟢 Пользователь {tgt} РАЗБЛОКИРОВАН.")
 
 
 async def cmd_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    if not context.args or len(context.args) < 2:
-        await update.message.reply_text("❌ Ошибка. Формат: <code>/msg [ID] [Текст]</code>", parse_mode="HTML")
-        return
-
+    if not context.args or len(context.args) < 2: return
     tgt_id = context.args[0]
     text_to_send = " ".join(context.args[1:])
-
     if tgt_id.isdigit():
         try:
             await context.bot.send_message(chat_id=int(tgt_id),
                                            text=f"✉️ <b>Сообщение от админа:</b>\n\n{text_to_send}", parse_mode="HTML")
             await update.message.reply_text("✅ Отправлено!")
         except Exception as e:
-            await update.message.reply_text(f"❌ Не удалось отправить: {e}")
-    else:
-        await update.message.reply_text("❌ Неверный ID.")
+            await update.message.reply_text(f"❌ Ошибка: {e}")
 
 
 async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -629,17 +613,13 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_caption("🔴 Отклонено!")
 
 
-# --- ЗАПУСК ---
 def main():
     init_db()
-
-    # Запуск фонового веб-сервера для удержания активного деплоя на Render
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Свободные админские команды (работают в обход любых диалогов пользователей)
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("setbal", cmd_setbal))
     app.add_handler(CommandHandler("ban", cmd_ban))
