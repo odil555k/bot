@@ -31,7 +31,8 @@ PRICE_PER_STAR = 210
 # Состояния диалогов
 REFILL_AMOUNT, CONFIRM_REFILL = range(2)
 BUY_AMOUNT, BUY_USERNAME, BUY_CONFIRM = range(2, 5)
-ADMIN_BAN_ID, ADMIN_UNBAN_ID, ADMIN_MSG_ID, ADMIN_MSG_TEXT = range(5, 9)
+# Новые состояния для изменения баланса через админку (ADMIN_BAL_ID, ADMIN_BAL_AMOUNT)
+ADMIN_BAN_ID, ADMIN_UNBAN_ID, ADMIN_MSG_ID, ADMIN_MSG_TEXT, ADMIN_BAL_ID, ADMIN_BAL_AMOUNT = range(5, 11)
 
 # --- РАБОТА С БАЗОЙ ДАННЫХ SQLITE ---
 DB_FILE = "bot_database.db"
@@ -43,26 +44,12 @@ def init_db():
     cursor.execute("""
                    CREATE TABLE IF NOT EXISTS users
                    (
-                       user_id
-                       INTEGER
-                       PRIMARY
-                       KEY,
-                       username
-                       TEXT,
-                       name
-                       TEXT,
-                       balance
-                       INTEGER
-                       DEFAULT
-                       0,
-                       lang
-                       TEXT
-                       DEFAULT
-                       'ru',
-                       is_banned
-                       INTEGER
-                       DEFAULT
-                       0
+                       user_id INTEGER PRIMARY KEY,
+                       username TEXT,
+                       name TEXT,
+                       balance INTEGER DEFAULT 0,
+                       lang TEXT DEFAULT 'ru',
+                       is_banned INTEGER DEFAULT 0
                    )
                    """)
     conn.commit()
@@ -182,12 +169,12 @@ TEXTS = {
         "btn_profile": "👤 Shaxsiy kabinet",
         "btn_back": "⬅️ Ortga",
         "btn_cancel": "❌ Bekor qilish",
-        "profile_text": "👤 <b>Shaxsiy kabinet</b>\n\n🆔 Sizning ID: <code>{user_id}</code>\n💰 Balans: {balance:,} so'm\n\n🌐 Tilni o'zgartirish / Сменить язык:",
+        "profile_text": "👤 Shaxsiy kabinet\n\n🆔 Sizning ID: <code>{user_id}</code>\n💰 Balans: {balance:,} so'm\n\n🌐 Tilni o'zgartirish / Сменить язык:",
         "shop_main": "🛍 <b>Kategoriyani tanlang:</b>",
         "shop_stars_cat": "💎 Telegram Stars (Yulduzlar)",
         "shop_prem_cat": "🌟 Telegram Premium (Obuna)",
         "stars_desc": "💎 <b>Telegram Stars (Yulduzlar)</b>\n\n💵 Bizning tarif: 1 ta yulduz uchun {price} so'm.",
-        "stars_manual": "✏️ Miqdorni qo'lda kiritish",
+        "stars_manual": "✏️ Miqdorni qo'da kiritish",
         "prem_desc": "🌟 <b>Telegram Premium narxlari:</b>\n\n🔹 3 oy — 75,000 so'm\n🔹 6 oy — 130,000 so'm\n🔹 12 oy — 240,000 so'm",
         "refill_start": "💳 To'ldirish summasini so'mda kiriting (masalan: 50000):",
         "refill_bad_num": "❌ Iltimos, to'g'ri son kiriting.",
@@ -196,7 +183,7 @@ TEXTS = {
         "refill_done": "⏳ Sizning chekingiz administratorga tekshirish uchun yuborildi.",
         "buy_stars_enter": "✏️ Qancha Telegram Stars (yulduz) sotib olmoqchisiz?",
         "buy_no_money": "❌ Mablag' yetarli emas.",
-        "buy_username_enter": "✏️ Qabul qiluvchining Telegram юзернеймини kiriting (@ belgisiz, masalan: durov):",
+        "buy_username_enter": "✏️ Qabul qiluvchining Telegram юзернейmini kiriting (@ belgisiz, masalan: durov):",
         "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiymati: <b>{price:,} so'm</b>",
         "buy_confirm_btn": "✅ Ha, sotib olish",
         "banned_msg": "❌ Siz ushbu botda bloklangansiz."
@@ -217,9 +204,8 @@ async def is_user_banned(update: Update) -> bool:
     return False
 
 
-# --- НОВАЯ ИНТЕГРАЦИЯ ELDER.UZ API (ПО НАСТОЯЩЕЙ ДОКУМЕНТАЦИИ) ---
+# --- НОВАЯ ИНТЕГРАЦИЯ ELDER.UZ API ---
 async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
-    # Очищаем юзернейм от символа @, если пользователь его ввел
     target = target.replace("@", "").strip()
 
     headers = {
@@ -332,7 +318,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton(t["shop_stars_cat"], callback_data="shop_stars")],
             [InlineKeyboardButton(t["shop_prem_cat"], callback_data="shop_premium")],
-            [InlineKeyboardButton(t["btn_back"], callback_data="back_to_main")]
+            [InlineKeyboardButton(t["btn_back"], callback_data="main_shop")]
         ]
         await query.message.edit_text(t["shop_main"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
@@ -497,6 +483,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     keyboard = [
         [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_list_users")],
+        [InlineKeyboardButton("💰 Изменить баланс", callback_data="admin_bal_start")],
         [InlineKeyboardButton("🚫 Блокировать ID", callback_data="admin_ban_start")],
         [InlineKeyboardButton("🟢 Разблокировать ID", callback_data="admin_unban_start")],
         [InlineKeyboardButton("✉️ Сообщение в ЛС", callback_data="admin_msg_start")]
@@ -519,6 +506,9 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rep += f"• <b>ID:</b> <code>{uid}</code>\n  <b>Юзернейм:</b> {u_name}\n  <b>Баланс:</b> {balance:,} сум\n  <b>Бан:</b> {'⛔ Да' if is_banned else '🟢 Нет'}\n───────────────────\n"
         await query.message.reply_text(rep or "База данных пуста.", parse_mode="HTML")
         return ADMIN_BAN_ID
+    elif query.data == "admin_bal_start":
+        await query.message.reply_text("Введите ID пользователя, которому хотите изменить баланс:")
+        return ADMIN_BAL_ID
     elif query.data == "admin_ban_start":
         await query.message.reply_text("Введите ID пользователя для БЛОКИРОВКИ:")
         return ADMIN_BAN_ID
@@ -529,6 +519,62 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Введите ID получателя сообщения:")
         return ADMIN_MSG_ID
     return ADMIN_BAN_ID
+
+
+# --- ФУНКЦИИ ИЗМЕНЕНИЯ БАЛАНСА АДМИНОМ ---
+async def admin_bal_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    txt = update.message.text.strip()
+    if txt.isdigit():
+        # Проверяем, существует ли пользователь в базе данных
+        u_data = get_user_data(int(txt))
+        context.user_data["bal_tgt_id"] = int(txt)
+        await update.message.reply_text(
+            f"Текущий баланс пользователя {txt}: {u_data['balance']:,} сум.\n\n"
+            f"Введите сумму, которую хотите <b>добавить</b> или <b>отнять</b>.\n"
+            f"<i>Пример: 50000 (чтобы выдать баланс) или -25000 (чтобы забрать)</i>",
+            parse_mode="HTML"
+        )
+        return ADMIN_BAL_AMOUNT
+    else:
+        await update.message.reply_text("❌ Введите корректный цифровой ID.")
+        return ADMIN_BAL_ID
+
+
+async def admin_bal_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
+    txt = update.message.text.strip().replace(" ", "")
+
+    # Разрешаем ввод отрицательных чисел (начинающихся с минуса)
+    is_negative = txt.startswith("-")
+    num_part = txt[1:] if is_negative else txt
+
+    if num_part.isdigit():
+        amount = int(txt)
+        tgt_id = context.user_data.get("bal_tgt_id")
+
+        # Обновляем баланс в бд
+        update_user_balance(tgt_id, amount)
+        new_data = get_user_data(tgt_id)
+
+        action_text = f"начислено {amount:,}" if amount > 0 else f"списано {abs(amount):,}"
+        await update.message.reply_text(
+            f"✅ Успешно! Пользователю <code>{tgt_id}</code> {action_text} сум.\n"
+            f"Новый баланс: <b>{new_data['balance']:,} сум</b>.",
+            parse_mode="HTML"
+        )
+
+        # Уведомляем пользователя
+        try:
+            user_msg = f"🔔 Администратор изменил ваш баланс на {amount:+,} сум.\n💰 Ваш текущий баланс: {new_data['balance']:,} сум."
+            await context.bot.send_message(chat_id=tgt_id, text=user_msg)
+        except Exception:
+            pass
+    else:
+        await update.message.reply_text("❌ Введите корректное число (например: 15000 или -15000).")
+        return ADMIN_BAL_AMOUNT
+
+    return ConversationHandler.END
 
 
 async def admin_ban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -612,7 +658,11 @@ def main():
                              MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unban_rcv)],
             ADMIN_MSG_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
                            MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)],
-            ADMIN_MSG_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)]
+            ADMIN_MSG_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)],
+            # Подключаем новые состояния для баланса
+            ADMIN_BAL_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
+                           MessageHandler(filters.TEXT & ~filters.COMMAND, admin_bal_id_rcv)],
+            ADMIN_BAL_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_bal_amount_rcv)]
         },
         fallbacks=[CommandHandler("start", start)]
     ))
