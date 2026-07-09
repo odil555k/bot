@@ -3,6 +3,7 @@ import json
 import asyncio
 import httpx
 import sqlite3
+import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
@@ -111,6 +112,23 @@ def get_all_users():
     return rows
 
 
+# --- СИСТЕМА ДЛЯ ЗАЩИТЫ БАЛАНСОВ НА RENDER (АВТО-БЭКАП) ---
+async def send_db_backup(context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет файл базы данных администратору в личные сообщения"""
+    if not os.path.exists(DB_FILE):
+        return
+    try:
+        with open(DB_FILE, 'rb') as f:
+            await context.bot.send_document(
+                chat_id=ADMIN_ID,
+                document=f,
+                caption="📦 <b>Авто-бэкап базы данных.</b>\nСохраните этот файл! Если при обновлении кода на Render пропадут балансы, просто закиньте этот файл обратно в проект."
+            )
+        logging.info("Бэкап базы данных успешно отправлен админу.")
+    except Exception as e:
+        logging.error(f"Ошибка отправки бэкапа: {e}")
+
+
 # --- ФЕЙКОВЫЙ ВЕБ-СЕРВЕР ДЛЯ ОБМАНА RENDER ---
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -124,7 +142,6 @@ class WebServerHandler(BaseHTTPRequestHandler):
 
 
 def run_web_server():
-    import os
     port = int(os.environ.get("PORT", 80))
     server = HTTPServer(("0.0.0.0", port), WebServerHandler)
     logging.info(f"🌐 Фейковый веб-сервер запущен на порту {port} для Render")
@@ -486,6 +503,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
+# --- ТВОЙ ОБНОВЛЕННЫЙ ОБРАБОТЧИК АДМИН-КНОПОК ---
 async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.from_user.id != ADMIN_ID: return
@@ -515,10 +533,8 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         rep += f"Всего человек запустили бота: <b>{total_users}</b>\n\n"
 
         for uid, username, name, balance, is_banned in users_page:
-            u_name = f"@{username}" if username else "нет юзернейма"
-            u_real_name = name if name else "Без имени"
-            # Выводим Имя, Юзернейм и ID в удобном формате
-            rep += f"• 👤 <b>{u_real_name}</b> ({u_name})\n  <b>ID:</b> <code>{uid}</code> | <b>Баланс:</b> {balance:,} сум | <b>Бан:</b> {'⛔' if is_banned else '🟢'}\n───────────────────\n"
+            # ПОЛНОСТЬЮ УБРАЛИ вывод Имени и Юзернейма (как ты просил)
+            rep += f"• 🆔 <b>ID:</b> <code>{uid}</code> | <b>Баланс:</b> {balance:,} сум | <b>Бан:</b> {'⛔' if is_banned else '🟢'}\n───────────────────\n"
 
         nav_buttons = []
         if page > 0:
@@ -609,6 +625,9 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=int(cid), text="🎉 Ваш баланс пополнен!")
         except Exception:
             pass
+        # Сразу после одобрения шлем бэкап базы, чтобы новые деньги точно зафиксировались!
+        await send_db_backup(context)
+
     elif query.data.startswith("adm_pay_no_"):
         await query.message.edit_caption("🔴 Отклонено!")
 
@@ -650,6 +669,10 @@ def main():
 
     app.add_handler(CallbackQueryHandler(admin_pay_buttons, pattern="^adm_pay_"))
     app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_|^main_|^back_to_main$"))
+
+    # Настраиваем автоматический бэкап базы данных админу в ЛС раз в час (3600 секунд)
+    if app.job_queue:
+        app.job_queue.run_repeating(send_db_backup, interval=3600, first=10)
 
     app.run_polling()
 
