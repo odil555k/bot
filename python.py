@@ -467,12 +467,12 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- АДМИН ПАНЕЛЬ ---
+# --- АДМИН ПАНЕЛЬ С СИСТЕМОЙ СТРАНИЦ ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
     context.user_data.clear()
     keyboard = [
-        [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_list_users")],
+        [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_list_users_0")],
         [InlineKeyboardButton("💰 Изменить баланс", callback_data="admin_bal_start")],
         [InlineKeyboardButton("🚫 Блокировать ID", callback_data="admin_ban_start")],
         [InlineKeyboardButton("🟢 Разблокировать ID", callback_data="admin_unban_start")],
@@ -488,25 +488,47 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.from_user.id != ADMIN_ID: return ADMIN_BAN_ID
     await query.answer()
 
-    if query.data == "admin_list_users":
+    # Обработка постраничного списка пользователей
+    if query.data.startswith("admin_list_users_"):
+        page = int(query.data.split("_")[-1])
         all_users = get_all_users()
         total_users = len(all_users)
 
-        rep = f"👥 <b>Пользователи, заходившие в бота ({total_users}):</b>\n\n"
+        if total_users == 0:
+            await query.message.reply_text("⚠️ База данных пользователей пуста.")
+            return ADMIN_BAN_ID
 
-        # Выводим до 30 человек, чтобы сообщение не превысило лимит Telegram
-        for uid, username, balance, is_banned in all_users[:30]:
+        per_page = 15  # Количество человек на одной странице
+        start_idx = page * per_page
+        end_idx = start_idx + per_page
+
+        users_page = all_users[start_idx:end_idx]
+        total_pages = (total_users + per_page - 1) // per_page
+
+        rep = f"👥 <b>Все пользователи вашего бота (Страница {page + 1}/{total_pages}):</b>\n"
+        rep += f"Всего человек запустили бота: <b>{total_users}</b>\n\n"
+
+        for uid, username, balance, is_banned in users_page:
             u_name = f"@{username}" if username else "нет юзернейма"
             rep += f"• <b>ID:</b> <code>{uid}</code> | {u_name}\n  <b>Баланс:</b> {balance:,} сум | <b>Бан:</b> {'⛔' if is_banned else '🟢'}\n───────────────────\n"
 
-        if total_users > 30:
-            rep += f"\n<i>...и еще {total_users - 30} пользователей.</i>"
+        # Формирование кнопок пагинации (Вперед / Назад)
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"admin_list_users_{page - 1}"))
+        if end_idx < total_users:
+            nav_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data=f"admin_list_users_{page + 1}"))
 
-        if total_users == 0:
-            rep = "⚠️ База данных пользователей пуста."
+        kb = [nav_buttons] if nav_buttons else []
 
-        await query.message.reply_text(rep, parse_mode="HTML")
+        try:
+            await query.message.edit_text(rep, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        except Exception:
+            # На случай, если текст не изменился, отправляем новым сообщением
+            await query.message.reply_text(rep, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+
         return ADMIN_BAN_ID
+
     elif query.data == "admin_bal_start":
         await query.message.reply_text("Введите ID пользователя, которому хотите изменить баланс:")
         return ADMIN_BAL_ID
