@@ -28,10 +28,9 @@ ELDER_API_URL = "https://asosiy.elder.uz/api"
 
 PRICE_PER_STAR = 210
 
-# Состояния диалогов
+# Состояния диалогов (оставили только пользовательские, админку убрали отсюда)
 REFILL_AMOUNT, CONFIRM_REFILL = range(2)
 BUY_AMOUNT, BUY_USERNAME, BUY_CONFIRM = range(2, 5)
-ADMIN_BAN_ID, ADMIN_UNBAN_ID, ADMIN_MSG_ID, ADMIN_MSG_TEXT, ADMIN_BAL_ID, ADMIN_BAL_AMOUNT = range(5, 11)
 
 # --- РАБОТА С БАЗОЙ ДАННЫХ SQLITE ---
 DB_FILE = "bot_database.db"
@@ -467,28 +466,36 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- АДМИН ПАНЕЛЬ С СИСТЕМОЙ СТРАНИЦ ---
+# --- АБСОЛЮТНО НЕЗАВИСИМАЯ АДМИН ПАНЕЛЬ ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
-    context.user_data.clear()
+    if update.effective_user.id != ADMIN_ID: return
+
     keyboard = [
         [InlineKeyboardButton("👥 Список пользователей", callback_data="admin_list_users_0")],
-        [InlineKeyboardButton("💰 Изменить баланс", callback_data="admin_bal_start")],
-        [InlineKeyboardButton("🚫 Блокировать ID", callback_data="admin_ban_start")],
-        [InlineKeyboardButton("🟢 Разблокировать ID", callback_data="admin_unban_start")],
-        [InlineKeyboardButton("✉️ Сообщение в ЛС", callback_data="admin_msg_start")]
+        [InlineKeyboardButton("❌ Закрыть панель", callback_data="admin_close")]
     ]
-    await update.message.reply_text("🛠 <b>Панель администратора</b>", reply_markup=InlineKeyboardMarkup(keyboard),
-                                    parse_mode="HTML")
-    return ADMIN_BAN_ID
+
+    text = (
+        "🛠 <b>Панель администратора</b>\n\n"
+        "Для управления пользователями используйте быстрые команды:\n"
+        "👉 <code>/setbal [ID] [сумма]</code> — изменить баланс\n"
+        "👉 <code>/ban [ID]</code> — забанить\n"
+        "👉 <code>/unban [ID]</code> — разбанить\n"
+        "👉 <code>/msg [ID] [текст]</code> — отправить сообщение\n\n"
+        "<i>Пример: /setbal 12345678 50000</i>"
+    )
+    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
-async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query.from_user.id != ADMIN_ID: return ADMIN_BAN_ID
+    if query.from_user.id != ADMIN_ID: return
     await query.answer()
 
-    # Обработка постраничного списка пользователей
+    if query.data == "admin_close":
+        await query.message.delete()
+        return
+
     if query.data.startswith("admin_list_users_"):
         page = int(query.data.split("_")[-1])
         all_users = get_all_users()
@@ -496,9 +503,9 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if total_users == 0:
             await query.message.reply_text("⚠️ База данных пользователей пуста.")
-            return ADMIN_BAN_ID
+            return
 
-        per_page = 15  # Количество человек на одной странице
+        per_page = 15
         start_idx = page * per_page
         end_idx = start_idx + per_page
 
@@ -512,134 +519,99 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             u_name = f"@{username}" if username else "нет юзернейма"
             rep += f"• <b>ID:</b> <code>{uid}</code> | {u_name}\n  <b>Баланс:</b> {balance:,} сум | <b>Бан:</b> {'⛔' if is_banned else '🟢'}\n───────────────────\n"
 
-        # Формирование кнопок пагинации (Вперед / Назад)
         nav_buttons = []
         if page > 0:
             nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"admin_list_users_{page - 1}"))
         if end_idx < total_users:
             nav_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data=f"admin_list_users_{page + 1}"))
 
-        kb = [nav_buttons] if nav_buttons else []
+        nav_buttons.append(InlineKeyboardButton("❌ Закрыть", callback_data="admin_close"))
+
+        # Переводим кнопки в строки
+        kb = []
+        if len(nav_buttons) > 1 and nav_buttons[-1].text == "❌ Закрыть":
+            kb.append(nav_buttons[:-1])
+            kb.append([nav_buttons[-1]])
+        else:
+            kb.append(nav_buttons)
 
         try:
             await query.message.edit_text(rep, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         except Exception:
-            # На случай, если текст не изменился, отправляем новым сообщением
             await query.message.reply_text(rep, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
 
-        return ADMIN_BAN_ID
 
-    elif query.data == "admin_bal_start":
-        await query.message.reply_text("Введите ID пользователя, которому хотите изменить баланс:")
-        return ADMIN_BAL_ID
-    elif query.data == "admin_ban_start":
-        await query.message.reply_text("Введите ID пользователя для БЛОКИРОВКИ:")
-        return ADMIN_BAN_ID
-    elif query.data == "admin_unban_start":
-        await query.message.reply_text("Введите ID пользователя для РАЗБЛОКИРОВКИ:")
-        return ADMIN_UNBAN_ID
-    elif query.data == "admin_msg_start":
-        await query.message.reply_text("Введите ID получателя сообщения:")
-        return ADMIN_MSG_ID
-    return ADMIN_BAN_ID
-
-
-# --- ФУНКЦИИ ИЗМЕНЕНИЯ БАЛАНСА ---
-async def admin_bal_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
-    txt = update.message.text.strip()
-    if txt.isdigit():
-        u_data = get_user_data(int(txt))
-        context.user_data["bal_tgt_id"] = int(txt)
+# --- БЫСТРЫЕ КОМАНДЫ АДМИНИСТРАТОРА ---
+async def cmd_setbal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    if not context.args or len(context.args) < 2:
         await update.message.reply_text(
-            f"Текущий баланс пользователя {txt}: {u_data['balance']:,} сум.\n\n"
-            f"Введите сумму, которую хотите <b>добавить</b> или <b>отнять</b>.\n"
-            f"<i>Пример: 50000 (чтобы выдать баланс) или -25000 (чтобы забрать)</i>",
-            parse_mode="HTML"
-        )
-        return ADMIN_BAL_AMOUNT
-    else:
-        await update.message.reply_text("❌ Введите корректный цифровой ID.")
-        return ADMIN_BAL_ID
+            "❌ Ошибка. Формат: <code>/setbal [ID] [сумма]</code>\nПример: <code>/setbal 6636620529 10000</code>",
+            parse_mode="HTML")
+        return
 
-
-async def admin_bal_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
-    txt = update.message.text.strip().replace(" ", "")
-
-    is_negative = txt.startswith("-")
-    num_part = txt[1:] if is_negative else txt
-
-    if num_part.isdigit():
-        amount = int(txt)
-        tgt_id = context.user_data.get("bal_tgt_id")
-
+    tgt_id, amt_str = context.args[0], context.args[1]
+    if tgt_id.isdigit() and (amt_str.isdigit() or (amt_str.startswith("-") and amt_str[1:].isdigit())):
+        tgt_id = int(tgt_id)
+        amount = int(amt_str)
         update_user_balance(tgt_id, amount)
         new_data = get_user_data(tgt_id)
-
-        action_text = f"начислено {amount:,}" if amount > 0 else f"списано {abs(amount):,}"
         await update.message.reply_text(
-            f"✅ Успешно! Пользователю <code>{tgt_id}</code> {action_text} сум.\n"
-            f"Новый баланс: <b>{new_data['balance']:,} сум</b>.",
-            parse_mode="HTML"
-        )
-
+            f"✅ Баланс ID <code>{tgt_id}</code> изменен на {amount:+,}. Текущий: {new_data['balance']:,} сум.",
+            parse_mode="HTML")
         try:
-            user_msg = f"🔔 Администратор изменил ваш баланс на {amount:+,} сум.\n💰 Ваш текущий баланс: {new_data['balance']:,} сум."
-            await context.bot.send_message(chat_id=tgt_id, text=user_msg)
+            await context.bot.send_message(chat_id=tgt_id,
+                                           text=f"🔔 Твой баланс изменен на {amount:+,} сум.\n💰 Текущий баланс: {new_data['balance']:,} сум.")
         except Exception:
             pass
     else:
-        await update.message.reply_text("❌ Введите корректное число (например: 15000 или -15000).")
-        return ADMIN_BAL_AMOUNT
-
-    return ConversationHandler.END
+        await update.message.reply_text("❌ Укажите корректный ID и число суммы.")
 
 
-async def admin_ban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
-    txt = update.message.text.strip()
-    if txt.isdigit():
-        update_user_ban(int(txt), True)
-        await update.message.reply_text(f"⛔ ID {txt} успешно ЗАБЛОКИРОВАН.")
+async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    if not context.args:
+        await update.message.reply_text("❌ Укажите ID. Пример: `/ban 12345678`", parse_mode="HTML")
+        return
+    tgt = context.args[0]
+    if tgt.isdigit():
+        update_user_ban(int(tgt), True)
+        await update.message.reply_text(f"⛔ Пользователь {tgt} успешно ЗАБЛОКИРОВАН.")
     else:
-        await update.message.reply_text("❌ Введите корректный цифровой ID.")
-    return ConversationHandler.END
+        await update.message.reply_text("❌ Неверный ID.")
 
 
-async def admin_unban_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
-    txt = update.message.text.strip()
-    if txt.isdigit():
-        update_user_ban(int(txt), False)
-        await update.message.reply_text(f"🟢 ID {txt} РАЗБЛОКИРОВАН.")
+async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    if not context.args:
+        await update.message.reply_text("❌ Укажите ID. Пример: `/unban 12345678`", parse_mode="HTML")
+        return
+    tgt = context.args[0]
+    if tgt.isdigit():
+        update_user_ban(int(tgt), False)
+        await update.message.reply_text(f"🟢 Пользователь {tgt} успешно РАЗБЛОКИРОВАН.")
     else:
-        await update.message.reply_text("❌ Введите корректный цифровой ID.")
-    return ConversationHandler.END
+        await update.message.reply_text("❌ Неверный ID.")
 
 
-async def admin_msg_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
-    txt = update.message.text.strip()
-    if txt.isdigit():
-        context.user_data["adm_tgt"] = int(txt)
-        await update.message.reply_text("Введите текст сообщения для отправки:")
-        return ADMIN_MSG_TEXT
+async def cmd_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text("❌ Ошибка. Формат: <code>/msg [ID] [Текст]</code>", parse_mode="HTML")
+        return
+
+    tgt_id = context.args[0]
+    text_to_send = " ".join(context.args[1:])
+
+    if tgt_id.isdigit():
+        try:
+            await context.bot.send_message(chat_id=int(tgt_id),
+                                           text=f"✉️ <b>Сообщение от админа:</b>\n\n{text_to_send}", parse_mode="HTML")
+            await update.message.reply_text("✅ Отправлено!")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Не удалось отправить: {e}")
     else:
-        await update.message.reply_text("❌ Введите корректный ID получателя.")
-        return ADMIN_MSG_ID
-
-
-async def admin_msg_text_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
-    tgt = context.user_data.get("adm_tgt")
-    try:
-        await context.bot.send_message(chat_id=tgt, text=f"✉️ <b>Сообщение от админа:</b>\n\n{update.message.text}",
-                                       parse_mode="HTML")
-        await update.message.reply_text("✅ Сообщение успешно доставлено!")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка отправки: {e}")
-    return ConversationHandler.END
+        await update.message.reply_text("❌ Неверный ID.")
 
 
 async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -667,24 +639,15 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
+    # Свободные админские команды (работают в обход любых диалогов пользователей)
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("setbal", cmd_setbal))
+    app.add_handler(CommandHandler("ban", cmd_ban))
+    app.add_handler(CommandHandler("unban", cmd_unban))
+    app.add_handler(CommandHandler("msg", cmd_msg))
+    app.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="^admin_"))
 
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("admin", admin_panel)],
-        states={
-            ADMIN_BAN_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
-                           MessageHandler(filters.TEXT & ~filters.COMMAND, admin_ban_rcv)],
-            ADMIN_UNBAN_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
-                             MessageHandler(filters.TEXT & ~filters.COMMAND, admin_unban_rcv)],
-            ADMIN_MSG_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
-                           MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)],
-            ADMIN_MSG_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)],
-            ADMIN_BAL_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
-                           MessageHandler(filters.TEXT & ~filters.COMMAND, admin_bal_id_rcv)],
-            ADMIN_BAL_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_bal_amount_rcv)]
-        },
-        fallbacks=[CommandHandler("start", start)]
-    ))
+    app.add_handler(CommandHandler("start", start))
 
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(refill_start_from_inline, pattern="^main_refill$")],
