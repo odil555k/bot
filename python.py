@@ -23,7 +23,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 BOT_TOKEN = "8844899781:AAHO-vgDPn4z5kJi5wCAX4o47OBQSwenkEU"
 ADMIN_ID = 6636620529
 CARD_NUMBER = "5614 6835 8985 1641"
-ELDER_API_KEY = "60c5ea48d40a93662e2a3f6600ae3b03"  # Убедись, что этот ключ получен в боте @elderstarsbot через /api
+ELDER_API_KEY = "60c5ea48d40a93662e2a3f6600ae3b03"  # API ключ от @elderstarsbot
 ELDER_API_URL = "https://asosiy.elder.uz/api"
 
 PRICE_PER_STAR = 210
@@ -31,7 +31,6 @@ PRICE_PER_STAR = 210
 # Состояния диалогов
 REFILL_AMOUNT, CONFIRM_REFILL = range(2)
 BUY_AMOUNT, BUY_USERNAME, BUY_CONFIRM = range(2, 5)
-# Новые состояния для изменения баланса через админку (ADMIN_BAL_ID, ADMIN_BAL_AMOUNT)
 ADMIN_BAN_ID, ADMIN_UNBAN_ID, ADMIN_MSG_ID, ADMIN_MSG_TEXT, ADMIN_BAL_ID, ADMIN_BAL_AMOUNT = range(5, 11)
 
 # --- РАБОТА С БАЗОЙ ДАННЫХ SQLITE ---
@@ -204,10 +203,9 @@ async def is_user_banned(update: Update) -> bool:
     return False
 
 
-# --- НОВАЯ ИНТЕГРАЦИЯ ELDER.UZ API ---
+# --- ИНТЕГРАЦИЯ ELDER.UZ API ---
 async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
     target = target.replace("@", "").strip()
-
     headers = {
         "X-Api-Key": ELDER_API_KEY,
         "Content-Type": "application/json"
@@ -215,22 +213,15 @@ async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
 
     if prod_type == "stars":
         url = f"{ELDER_API_URL}/stars/buy"
-        payload = {
-            "username": target,
-            "amount": value
-        }
-    else:  # premium
+        payload = {"username": target, "amount": value}
+    else:
         url = f"{ELDER_API_URL}/premium/buy"
-        payload = {
-            "username": target,
-            "months": value
-        }
+        payload = {"username": target, "months": value}
 
     try:
         async with httpx.AsyncClient() as client:
             logging.info(f"Отправка запроса на {url} с телом {payload}")
             response = await client.post(url, headers=headers, json=payload, timeout=25.0)
-
             if response.status_code == 200:
                 res_json = response.json()
                 if res_json.get("success") is True:
@@ -239,10 +230,9 @@ async def send_order_to_elder(prod_type: str, value: int, target: str) -> bool:
                 else:
                     logging.error(f"Elder API вернул success=False: {res_json}")
             else:
-                logging.error(f"Ошибка Elder API. Статус-код: {response.status_code}, Ответ: {response.text}")
+                logging.error(f"Ошибка Elder API. Статус: {response.status_code}, Ответ: {response.text}")
     except Exception as e:
         logging.error(f"Критическая ошибка при отправке запроса к Elder API: {e}")
-
     return False
 
 
@@ -318,7 +308,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton(t["shop_stars_cat"], callback_data="shop_stars")],
             [InlineKeyboardButton(t["shop_prem_cat"], callback_data="shop_premium")],
-            [InlineKeyboardButton(t["btn_back"], callback_data="main_shop")]
+            [InlineKeyboardButton(t["btn_back"], callback_data="back_to_main")]
         ]
         await query.message.edit_text(t["shop_main"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
@@ -381,8 +371,8 @@ async def refill_cheque_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CONFIRM_REFILL
 
     fid = update.message.photo[-1].file_id if update.message.photo else update.message.document.file_id
-    kb = [[InlineKeyboardButton("✅ Odobrish", callback_data=f"adm_pay_yes_{user.id}_{amount}"),
-           InlineKeyboardButton("❌ Rad etish", callback_data=f"adm_pay_no_{user.id}")]]
+    kb = [[InlineKeyboardButton("✅ Одобрить", callback_data=f"adm_pay_yes_{user.id}_{amount}"),
+           InlineKeyboardButton("❌ Отклонить", callback_data=f"adm_pay_no_{user.id}")]]
     await context.bot.send_photo(chat_id=ADMIN_ID, photo=fid,
                                  caption=f"💰 Пополнение! ID: {user.id}\nСумма: {amount:,} сумов",
                                  reply_markup=InlineKeyboardMarkup(kb))
@@ -458,7 +448,7 @@ async def buy_confirm_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text("❌ Ошибка: недостаточно средств.")
         return ConversationHandler.END
 
-    await query.message.edit_text("🔄 Подождите секундочку")
+    await query.message.edit_text("🔄 Подождите секундочку...")
     success = await send_order_to_elder(prod_type, value, target)
 
     if success:
@@ -499,12 +489,23 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == "admin_list_users":
-        rep = "👥 <b>Список пользователей:</b>\n\n"
         all_users = get_all_users()
-        for uid, username, balance, is_banned in all_users:
-            u_name = f"@{username}" if username else "нет"
-            rep += f"• <b>ID:</b> <code>{uid}</code>\n  <b>Юзернейм:</b> {u_name}\n  <b>Баланс:</b> {balance:,} сум\n  <b>Бан:</b> {'⛔ Да' if is_banned else '🟢 Нет'}\n───────────────────\n"
-        await query.message.reply_text(rep or "База данных пуста.", parse_mode="HTML")
+        total_users = len(all_users)
+
+        rep = f"👥 <b>Пользователи, заходившие в бота ({total_users}):</b>\n\n"
+
+        # Выводим до 30 человек, чтобы сообщение не превысило лимит Telegram
+        for uid, username, balance, is_banned in all_users[:30]:
+            u_name = f"@{username}" if username else "нет юзернейма"
+            rep += f"• <b>ID:</b> <code>{uid}</code> | {u_name}\n  <b>Баланс:</b> {balance:,} сум | <b>Бан:</b> {'⛔' if is_banned else '🟢'}\n───────────────────\n"
+
+        if total_users > 30:
+            rep += f"\n<i>...и еще {total_users - 30} пользователей.</i>"
+
+        if total_users == 0:
+            rep = "⚠️ База данных пользователей пуста."
+
+        await query.message.reply_text(rep, parse_mode="HTML")
         return ADMIN_BAN_ID
     elif query.data == "admin_bal_start":
         await query.message.reply_text("Введите ID пользователя, которому хотите изменить баланс:")
@@ -521,12 +522,11 @@ async def admin_menu_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADMIN_BAN_ID
 
 
-# --- ФУНКЦИИ ИЗМЕНЕНИЯ БАЛАНСА АДМИНОМ ---
+# --- ФУНКЦИИ ИЗМЕНЕНИЯ БАЛАНСА ---
 async def admin_bal_id_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
     txt = update.message.text.strip()
     if txt.isdigit():
-        # Проверяем, существует ли пользователь в базе данных
         u_data = get_user_data(int(txt))
         context.user_data["bal_tgt_id"] = int(txt)
         await update.message.reply_text(
@@ -545,7 +545,6 @@ async def admin_bal_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYP
     if update.effective_user.id != ADMIN_ID: return ConversationHandler.END
     txt = update.message.text.strip().replace(" ", "")
 
-    # Разрешаем ввод отрицательных чисел (начинающихся с минуса)
     is_negative = txt.startswith("-")
     num_part = txt[1:] if is_negative else txt
 
@@ -553,7 +552,6 @@ async def admin_bal_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYP
         amount = int(txt)
         tgt_id = context.user_data.get("bal_tgt_id")
 
-        # Обновляем баланс в бд
         update_user_balance(tgt_id, amount)
         new_data = get_user_data(tgt_id)
 
@@ -564,7 +562,6 @@ async def admin_bal_amount_rcv(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode="HTML"
         )
 
-        # Уведомляем пользователя
         try:
             user_msg = f"🔔 Администратор изменил ваш баланс на {amount:+,} сум.\n💰 Ваш текущий баланс: {new_data['balance']:,} сум."
             await context.bot.send_message(chat_id=tgt_id, text=user_msg)
@@ -631,7 +628,7 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_user_balance(int(cid), int(amt))
         await query.message.edit_caption("🟢 Одобрено!")
         try:
-            await context.bot.send_message(chat_id=int(cid), text="🎉 Баланс пополнен!")
+            await context.bot.send_message(chat_id=int(cid), text="🎉 Ваш баланс пополнен!")
         except Exception:
             pass
     elif query.data.startswith("adm_pay_no_"):
@@ -642,6 +639,7 @@ async def admin_pay_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
 
+    # Запуск фонового веб-сервера для удержания активного деплоя на Render
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
 
@@ -659,7 +657,6 @@ def main():
             ADMIN_MSG_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
                            MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_id_rcv)],
             ADMIN_MSG_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_msg_text_rcv)],
-            # Подключаем новые состояния для баланса
             ADMIN_BAL_ID: [CallbackQueryHandler(admin_menu_cb, pattern="^admin_"),
                            MessageHandler(filters.TEXT & ~filters.COMMAND, admin_bal_id_rcv)],
             ADMIN_BAL_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_bal_amount_rcv)]
