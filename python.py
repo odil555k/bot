@@ -21,10 +21,10 @@ from telegram.ext import (
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8844899781:AAHO-vgDPn4z5kJi5wCAX4o47OBQSwenkEU"
+BOT_TOKEN = "8844899781:AAFTSQbM1pT_zeqSlpxhD05frKMWXhAbpjo"
 ADMIN_ID = 6636620529
 CARD_NUMBER = "5614 6835 8985 1641"
-ELDER_API_KEY = "60c5ea48d40a93662e2a3f6600ae3b03"  # API ключ от @elderstarsbot
+ELDER_API_KEY = "4b3815500e96483e82d23bf2dd6de6d3"  # API ключ от @elderstarsbot
 ELDER_API_URL = "https://asosiy.elder.uz/api"
 
 PRICE_PER_STAR = 210
