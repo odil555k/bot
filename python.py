@@ -175,7 +175,13 @@ TEXTS = {
         "buy_username_enter": "✏️ Введите Telegram Юзернейм получателя (БЕЗ знака @, например: durov):",
         "buy_confirm_title": "📝 <b>Подтверждение покупки</b>\n\n📦 Товар: {prod_name}\n👤 Получатель: {target}\n💵 Стоимость: <b>{price:,} сумов</b>\n\nСписать деньги с баланса?",
         "buy_confirm_btn": "✅ Да, купить",
-        "banned_msg": "❌ Вы заблокированы в этом боте."
+        "banned_msg": "❌ Вы заблокированы в этом боте.",
+        "shop_acc_cat": "📱 Купить Telegram аккаунт",
+        "acc_desc": "📱 <b>Выберите страну номера для аккаунта:</b>",
+        "acc_uz": "🇺🇿 Узбекистан — 13,000 сум",
+        "acc_co": "🇨🇴 Колумбия — 6,500 сум",
+        "acc_uk": "🇬🇧 Великобритания — 9,000 сум",
+        "acc_us": "🇺🇸 Америка — 8,000 сум"
     },
     "uz": {
         "welcome": "👋 Salom, {name}!\nTelegram Stars & Premium do'koniga xush kelibsiz.\n\n💰 Sizning balansingiz: {balance:,} so'm",
@@ -201,7 +207,13 @@ TEXTS = {
         "buy_username_enter": "✏️ Qabul qiluvchining Telegram юзернейmini kiriting (@ belgisiz, masalan: durov):",
         "buy_confirm_title": "📝 <b>Xaridni tasdiqlash</b>\n\n📦 Mahsulot: {prod_name}\n👤 Qabul qiluvchi: {target}\n💵 Qiymati: <b>{price:,} so'm</b>",
         "buy_confirm_btn": "✅ Ha, sotib olish",
-        "banned_msg": "❌ Siz ushbu botda bloklangansiz."
+        "banned_msg": "❌ Siz ushbu botda bloklangansiz.",
+        "shop_acc_cat": "📱 Telegram akkaunt sotib olish",
+        "acc_desc": "📱 <b>Davlatni tanlang:</b>",
+        "acc_uz": "🇺🇿 O'zbekiston — 13,000 so'm",
+        "acc_co": "🇨🇴 Kolumbiya — 6,500 so'm",
+        "acc_uk": "🇬🇧 Buyuk Britaniya — 9,000 so'm",
+        "acc_us": "🇺🇸 Amerika — 8,000 so'm"
     }
 }
 
@@ -267,10 +279,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.message:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard))
-        msg = await update.message.reply_text(".", reply_markup=ReplyKeyboardRemove())
-        await msg.delete()
     else:
-        await update.callback_query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard))
+        await update.callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard))
     return ConversationHandler.END
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -318,6 +328,7 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton(t["shop_stars_cat"], callback_data="shop_stars")],
             [InlineKeyboardButton(t["shop_prem_cat"], callback_data="shop_premium")],
+            [InlineKeyboardButton(t["shop_acc_cat"], callback_data="shop_acc")],
             [InlineKeyboardButton(t["btn_back"], callback_data="back_to_main")]
         ]
         await query.message.edit_text(t["shop_main"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -345,6 +356,30 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton(t["btn_back"], callback_data="main_shop")]
         ]
         await query.message.edit_text(t["prem_desc"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+
+    # ОТДЕЛЬНЫЕ БЛОКИ (НЕ ВНУТРИ ПРЕДЫДУЩИХ)
+    if query.data == "shop_acc":
+        kb = [
+            [InlineKeyboardButton(t["acc_uz"], callback_data="buy_acc_uz_13000")],
+            [InlineKeyboardButton(t["acc_co"], callback_data="buy_acc_co_6500")],
+            [InlineKeyboardButton(t["acc_uk"], callback_data="buy_acc_uk_9000")],
+            [InlineKeyboardButton(t["acc_us"], callback_data="buy_acc_us_8000")],
+            [InlineKeyboardButton(t["btn_back"], callback_data="main_shop")]
+        ]
+        await query.message.edit_text(t["acc_desc"], reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        return
+
+    if query.data.startswith("buy_acc_"):
+        _, _, _, country, price = query.data.split("_")
+        price = int(price)
+        if u_data["balance"] < price:
+            await query.answer("❌ Недостаточно средств!", show_alert=True)
+            return
+
+        update_user_balance(query.from_user.id, -price)
+        await context.bot.send_message(ADMIN_ID, f"🔔 Заказ аккаунта: {country.upper()}\nОт: @{query.from_user.username}")
+        await query.message.edit_text("✅ Заявка принята! Данные будут отправлены в ЛС.")
         return
 
 # --- ПОПОЛНЕНИЕ ---
@@ -636,7 +671,7 @@ def main():
     ))
 
     # Кнопки меню
-    app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_|^main_|^back_to_main$"))
+    app.add_handler(CallbackQueryHandler(inline_handler, pattern="^shop_|^setlang_|^main_|^back_to_main$|^buy_acc_"))
 
     # Авто-бэкап раз в час
     if app.job_queue:
