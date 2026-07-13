@@ -371,17 +371,20 @@ async def inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query.data.startswith("buy_acc_"):
-        _, _, _, country, price = query.data.split("_")
-        price = int(price)
+        parts = query.data.split("_")
+        country = parts[2]
+        price = int(parts[3])
+
         if u_data["balance"] < price:
             await query.answer("❌ Недостаточно средств!", show_alert=True)
             return
 
         update_user_balance(query.from_user.id, -price)
-        await context.bot.send_message(ADMIN_ID, f"🔔 Заказ аккаунта: {country.upper()}\nОт: @{query.from_user.username}")
+        await context.bot.send_message(ADMIN_ID,
+                                       f"🔔 Заказ аккаунта: {country.upper()}\nОт: @{query.from_user.username or query.from_user.id}")
         await query.message.edit_text("✅ Заявка принята! Данные будут отправлены в ЛС.")
         return
-
+    
 # --- ПОПОЛНЕНИЕ ---
 async def refill_start_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
