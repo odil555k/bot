@@ -389,7 +389,7 @@ def get_users():
 
 
 # =========================================================
-# ПРОВЕРКА ПОЛЬЗОВАТЕЛЯ
+# ПРОВЕРКА БАНА
 # =========================================================
 
 async def check_ban(update: Update):
@@ -426,7 +426,7 @@ async def check_ban(update: Update):
 
 
 # =========================================================
-# RENDER WEB SERVER
+# WEB SERVER
 # =========================================================
 
 class Handler(BaseHTTPRequestHandler):
@@ -447,6 +447,7 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, format, *args):
+
         return
 
 
@@ -468,7 +469,7 @@ def run_web():
 
 
 # =========================================================
-# API
+# ELDER API
 # =========================================================
 
 async def api_buy(
@@ -545,6 +546,7 @@ async def start(
     context.user_data.clear()
 
     if await check_ban(update):
+
         return ConversationHandler.END
 
     user = update.effective_user
@@ -585,7 +587,7 @@ async def start(
 
 
 # =========================================================
-# ГЛАВНЫЕ КНОПКИ
+# ОСНОВНЫЕ КНОПКИ
 # =========================================================
 
 async def main_buttons(
@@ -594,6 +596,7 @@ async def main_buttons(
 ):
 
     if await check_ban(update):
+
         return
 
     query = update.callback_query
@@ -608,7 +611,6 @@ async def main_buttons(
         user.first_name
     )
 
-    # НАЗАД
     if query.data == "back_main":
 
         keyboard = [
@@ -641,7 +643,6 @@ async def main_buttons(
 
         return
 
-    # УСЛУГИ
     if query.data == "main_shop":
 
         keyboard = [
@@ -685,7 +686,6 @@ async def main_buttons(
 
         return
 
-    # ПРОФИЛЬ
     if query.data == "main_profile":
 
         keyboard = [
@@ -708,7 +708,6 @@ async def main_buttons(
 
         return
 
-    # STARS
     if query.data == "shop_stars":
 
         keyboard = [
@@ -748,7 +747,6 @@ async def main_buttons(
 
         return
 
-    # PREMIUM
     if query.data == "shop_premium":
 
         keyboard = [
@@ -786,7 +784,6 @@ async def main_buttons(
 
         return
 
-    # ПОДАРКИ
     if query.data == "shop_gifts":
 
         keyboard = []
@@ -819,7 +816,6 @@ async def main_buttons(
 
         return
 
-    # АККАУНТЫ
     if query.data == "shop_accounts":
 
         keyboard = [
@@ -863,7 +859,6 @@ async def main_buttons(
 
         return
 
-    # АККАУНТ
     if query.data.startswith("account_"):
 
         countries = {
@@ -881,12 +876,11 @@ async def main_buttons(
         await context.bot.send_message(
             ADMIN_ID,
             (
-                "📱 <b>Новый заказ аккаунта</b>\n\n"
-                f"🌍 Страна: <b>{country}</b>\n"
+                "📱 Новый заказ аккаунта\n\n"
+                f"🌍 Страна: {country}\n"
                 f"👤 Username: @{user.username or 'нет'}\n"
-                f"🆔 ID: <code>{user.id}</code>"
-            ),
-            parse_mode="HTML"
+                f"🆔 ID: {user.id}"
+            )
         )
 
         await query.message.edit_text(
@@ -949,13 +943,12 @@ async def refill_amount(
 
     await update.message.reply_text(
         (
-            "💳 <b>Пополнение баланса</b>\n\n"
-            f"💰 Сумма: <b>{amount:,} сум</b>\n\n"
+            "💳 Пополнение баланса\n\n"
+            f"💰 Сумма: {amount:,} сум\n\n"
             f"Переведите сумму на карту:\n"
-            f"<code>{CARD_NUMBER}</code>\n\n"
+            f"{CARD_NUMBER}\n\n"
             "После оплаты отправьте чек."
-        ),
-        parse_mode="HTML"
+        )
     )
 
     return REFILL_CHECK
@@ -981,10 +974,10 @@ async def refill_check(
             ADMIN_ID,
             file_id,
             caption=(
-                "💰 <b>Пополнение баланса</b>\n\n"
+                "💰 Пополнение баланса\n\n"
                 f"👤 Username: @{user.username or 'нет'}\n"
-                f"🆔 ID: <code>{user.id}</code>\n"
-                f"💵 Сумма: <b>{amount:,} сум</b>"
+                f"🆔 ID: {user.id}\n"
+                f"💵 Сумма: {amount:,} сум"
             ),
             reply_markup=InlineKeyboardMarkup(
                 [
@@ -999,8 +992,7 @@ async def refill_check(
                         )
                     ]
                 ]
-            ),
-            parse_mode="HTML"
+            )
         )
 
     else:
@@ -1021,7 +1013,7 @@ async def refill_check(
 
 
 # =========================================================
-# STARS / PREMIUM
+# ПОКУПКА STARS / PREMIUM
 # =========================================================
 
 async def buy_start(
@@ -1279,14 +1271,13 @@ async def buy_confirm(
     await context.bot.send_message(
         ADMIN_ID,
         (
-            "🚀 <b>Новый заказ</b>\n\n"
+            "🚀 Новый заказ\n\n"
             f"👤 Username: @{user.username or 'нет'}\n"
-            f"🆔 ID: <code>{user.id}</code>\n"
+            f"🆔 ID: {user.id}\n"
             f"📦 Товар: {product}\n"
             f"🎯 Получатель: @{target}\n"
             f"💰 Сумма: {price:,} сум"
-        ),
-        parse_mode="HTML"
+        )
     )
 
     context.user_data.clear()
@@ -1344,11 +1335,6 @@ async def gift_username(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    # =====================================================
-    # ВАЖНО:
-    # ТУТ НЕТ ПРОВЕРКИ СУММЫ
-    # =====================================================
-
     username = update.message.text.strip()
 
     username = username.replace(
@@ -1402,22 +1388,27 @@ async def gift_username(
         -gift["price"]
     )
 
+    # ============================================
+    # НАСТОЯЩИЙ CUSTOM EMOJI БЕЗ HTML
+    # ============================================
+
+    emoji = gift["emoji"]
+
     text = (
-        f"{gift['emoji']} "
-        "🎁 <b>Новый заказ подарка</b>\n\n"
-        f"🎁 Подарок: <b>{gift['name']}</b>\n"
+        f"{emoji} 🎁 Новый заказ подарка\n\n"
+        f"🎁 Подарок: {gift['name']}\n"
         f"👤 Заказал: @{user.username or 'нет'}\n"
-        f"🆔 ID: <code>{user.id}</code>\n"
+        f"🆔 ID: {user.id}\n"
         f"🎯 Получатель: @{username}\n"
         f"💰 Цена: {gift['price']:,} сум\n"
-        f"🆔 Emoji ID: <code>{gift['emoji_id']}</code>"
+        f"🆔 Emoji ID: {gift['emoji_id']}"
     )
 
     entities = [
         MessageEntity(
             type="custom_emoji",
             offset=0,
-            length=2,
+            length=len(emoji.encode("utf-16-le")) // 2,
             custom_emoji_id=gift["emoji_id"]
         )
     ]
@@ -1439,7 +1430,7 @@ async def gift_username(
 
 
 # =========================================================
-# АДМИНКА
+# АДМИН-ПАНЕЛЬ
 # =========================================================
 
 async def admin(
@@ -1525,7 +1516,7 @@ async def admin_callback(
         )
 
         text = (
-            f"👥 <b>Пользователи</b>\n"
+            f"👥 Пользователи\n"
             f"📄 Страница {page + 1}/{total_pages}\n\n"
         )
 
@@ -1552,7 +1543,7 @@ async def admin_callback(
             text += (
                 "━━━━━━━━━━━━━━\n"
                 f"👤 {username_text}\n"
-                f"🆔 <code>{user_id}</code>\n"
+                f"🆔 ID: {user_id}\n"
                 f"💰 {balance:,} сум\n"
                 f"🚫 {ban_text}\n"
             )
@@ -1594,8 +1585,7 @@ async def admin_callback(
 
         await query.message.edit_text(
             text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 
@@ -1616,9 +1606,13 @@ async def setbal(
 
         return
 
-    user_id = int(context.args[0])
+    user_id = int(
+        context.args[0]
+    )
 
-    amount = int(context.args[1])
+    amount = int(
+        context.args[1]
+    )
 
     change_balance(
         user_id,
@@ -1691,7 +1685,9 @@ async def msg(
 
         return
 
-    user_id = int(context.args[0])
+    user_id = int(
+        context.args[0]
+    )
 
     text = " ".join(
         context.args[1:]
@@ -1708,7 +1704,7 @@ async def msg(
 
 
 # =========================================================
-# ПОПОЛНЕНИЕ АДМИНОМ
+# ОПЛАТЫ
 # =========================================================
 
 async def payment_callback(
@@ -1778,11 +1774,6 @@ def main():
         .token(BOT_TOKEN)
         .build()
     )
-
-    # =====================================================
-    # ОДИН ОБЩИЙ CONVERSATION HANDLER
-    # ИМЕННО ЭТО ИСПРАВЛЯЕТ ТВОЮ ОШИБКУ
-    # =====================================================
 
     app.add_handler(
         ConversationHandler(
@@ -1863,7 +1854,6 @@ def main():
         )
     )
 
-    # START
     app.add_handler(
         CommandHandler(
             "start",
@@ -1871,7 +1861,6 @@ def main():
         )
     )
 
-    # АДМИН
     app.add_handler(
         CommandHandler(
             "admin",
@@ -1907,7 +1896,6 @@ def main():
         )
     )
 
-    # АДМИН-КНОПКИ
     app.add_handler(
         CallbackQueryHandler(
             admin_callback,
@@ -1922,7 +1910,6 @@ def main():
         )
     )
 
-    # ОСНОВНЫЕ КНОПКИ
     app.add_handler(
         CallbackQueryHandler(
             main_buttons,
