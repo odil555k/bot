@@ -445,6 +445,7 @@ def init_db():
     """)
 
     conn.commit()
+
     conn.close()
 
 
@@ -548,6 +549,7 @@ def set_language(
     )
 
     conn.commit()
+
     conn.close()
 
 
@@ -573,6 +575,7 @@ def change_balance(
     )
 
     conn.commit()
+
     conn.close()
 
 
@@ -615,11 +618,6 @@ def tr(
         key,
     )
 
-    kwargs.setdefault(
-        "user_id",
-        user_id,
-    )
-
     return text.format(**kwargs)
 
 
@@ -632,6 +630,7 @@ async def check_ban(update):
     user = update.effective_user
 
     if not user:
+
         return False
 
     data = get_user(
@@ -793,6 +792,65 @@ async def start(
 
 
 # =========================================================
+# ПРОФИЛЬ
+# =========================================================
+
+async def profile_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    user = query.from_user
+
+    data = get_user(
+        user.id,
+        user.username,
+        user.first_name,
+    )
+
+    username = user.username or "нет username"
+
+    keyboard = InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+                tr(user.id, "back"),
+                callback_data="back_main",
+            )
+
+        ]
+
+    ])
+
+    profile_text = (
+
+        "👤 <b>Мой профиль</b>\n\n"
+
+        f"👤 Username: @{escape(username)}\n"
+
+        f"🆔 ID: <code>{user.id}</code>\n"
+
+        f"💰 Баланс: <b>{data['balance']:,} сум</b>"
+
+    )
+
+    await query.message.reply_text(
+
+        profile_text,
+
+        reply_markup=keyboard,
+
+        parse_mode="HTML",
+
+    )
+
+
+# =========================================================
 # ГЛАВНЫЕ КНОПКИ
 # =========================================================
 
@@ -818,7 +876,7 @@ async def main_buttons(
     )
 
 
-    # НАЗАД В ГЛАВНОЕ МЕНЮ
+    # НАЗАД
 
     if query.data == "back_main":
 
@@ -878,50 +936,6 @@ async def main_buttons(
         await query.message.edit_text(
 
             "🌐 <b>Выберите язык / Tilni tanlang</b>",
-
-            reply_markup=InlineKeyboardMarkup(keyboard),
-
-            parse_mode="HTML",
-
-        )
-
-        return
-
-
-    # ПРОФИЛЬ
-
-    if query.data == "main_profile":
-
-        username = user.username or "нет username"
-
-        keyboard = [
-
-            [
-
-                InlineKeyboardButton(
-                    tr(user.id, "back"),
-                    callback_data="back_main",
-                )
-
-            ]
-
-        ]
-
-        await query.message.edit_text(
-
-            tr(
-
-                user.id,
-
-                "profile",
-
-                username=username,
-
-                user_id=user.id,
-
-                balance=data["balance"],
-
-            ),
 
             reply_markup=InlineKeyboardMarkup(keyboard),
 
@@ -1978,6 +1992,7 @@ async def refill_check(
                 callback_data=(
 
                     f"approve_refill_"
+
                     f"{user.id}_{amount}"
 
                 ),
@@ -2537,6 +2552,7 @@ async def gift_username(
             "🎁 <b>НОВЫЙ ЗАКАЗ ПОДАРКА</b>\n\n"
 
             f"🎁 Подарок: <b>"
+
             f"{escape(gift['name'])}</b>\n"
 
             f"💰 Цена: {gift['price']:,} сум\n\n"
@@ -2544,6 +2560,7 @@ async def gift_username(
             f"👤 Заказал: {escape(sender)}\n"
 
             f"🆔 ID заказчика: "
+
             f"<code>{user.id}</code>\n\n"
 
             f"🎯 Получатель: @{escape(username)}\n"
@@ -3072,6 +3089,10 @@ def main():
     )
 
 
+    # =====================================================
+    # ЯЗЫК
+    # =====================================================
+
     application.add_handler(
 
         CallbackQueryHandler(
@@ -3084,6 +3105,27 @@ def main():
 
     )
 
+
+    # =====================================================
+    # ПРОФИЛЬ — ОТДЕЛЬНЫЙ ОБРАБОТЧИК
+    # =====================================================
+
+    application.add_handler(
+
+        CallbackQueryHandler(
+
+            profile_callback,
+
+            pattern=r"^(main_profile|profile)$",
+
+        )
+
+    )
+
+
+    # =====================================================
+    # ПОПОЛНЕНИЕ
+    # =====================================================
 
     application.add_handler(
 
@@ -3098,6 +3140,10 @@ def main():
     )
 
 
+    # =====================================================
+    # АДМИН
+    # =====================================================
+
     application.add_handler(
 
         CallbackQueryHandler(
@@ -3110,6 +3156,28 @@ def main():
 
     )
 
+
+    # =====================================================
+    # ГЛАВНЫЕ КНОПКИ
+    # ВАЖНО: ДО ConversationHandler
+    # =====================================================
+
+    application.add_handler(
+
+        CallbackQueryHandler(
+
+            main_buttons,
+
+            pattern=r"^(main_|shop_|back_main|account_|language_menu)",
+
+        )
+
+    )
+
+
+    # =====================================================
+    # CONVERSATION HANDLER
+    # =====================================================
 
     application.add_handler(
 
@@ -3313,21 +3381,8 @@ def main():
 
 
     # =====================================================
-    # ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ГЛАВНЫХ КНОПОК
+    # НЕИЗВЕСТНЫЕ CALLBACK
     # =====================================================
-
-    application.add_handler(
-
-        CallbackQueryHandler(
-
-            main_buttons,
-
-            pattern=r"^(main_|shop_|back_main|account_|language_menu)",
-
-        )
-
-    )
-
 
     application.add_handler(
 
