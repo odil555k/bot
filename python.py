@@ -2701,7 +2701,7 @@ def main():
 
             main_buttons,
 
-            pattern=r"^(main_|shop_|back_main|account_|language_menu)$",
+            pattern=r"^(main_.*|shop_.*|back_main|account_.*|language_menu)$",
 
         )
 
