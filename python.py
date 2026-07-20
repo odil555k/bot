@@ -86,6 +86,7 @@ GIFT_USERNAME = 8
 # =========================================================
 
 GIFTS = {
+
     1: {
         "emoji": "🎁",
         "emoji_id": "5280615440928758599",
@@ -181,6 +182,7 @@ GIFTS = {
         "stars": 50,
         "name": "Мишка-футболист",
     },
+
 }
 
 
@@ -200,11 +202,9 @@ TEXTS = {
 
         "services": "🛍 Услуги",
 
-        # ИСПРАВЛЕНО
-        "profile_button": "👤 Профиль",
-
         "profile": (
             "👤 <b>Мой профиль</b>\n\n"
+            "👤 Username: @{username}\n"
             "🆔 ID: <code>{user_id}</code>\n"
             "💰 Баланс: <b>{balance:,} сум</b>"
         ),
@@ -271,9 +271,13 @@ TEXTS = {
             "После оплаты отправьте фото чека."
         ),
 
-        "receipt_sent": "⏳ Чек отправлен администратору.",
+        "receipt_sent": (
+            "⏳ Чек отправлен администратору."
+        ),
 
-        "send_receipt": "❌ Отправьте фото чека.",
+        "send_receipt": (
+            "❌ Отправьте фото чека."
+        ),
 
         "gift_send_type": (
             "🎁 <b>Как отправить подарок?</b>"
@@ -300,6 +304,7 @@ TEXTS = {
             "💰 Цена: {price:,} сум\n\n"
             "Подтвердить покупку?"
         ),
+
     },
 
     "uz": {
@@ -312,11 +317,9 @@ TEXTS = {
 
         "services": "🛍 Xizmatlar",
 
-        # ИСПРАВЛЕНО
-        "profile_button": "👤 Profil",
-
         "profile": (
             "👤 <b>Mening profilim</b>\n\n"
+            "👤 Username: @{username}\n"
             "🆔 ID: <code>{user_id}</code>\n"
             "💰 Balans: <b>{balance:,} so'm</b>"
         ),
@@ -363,7 +366,9 @@ TEXTS = {
 
         "processing": "🔄 Buyurtma bajarilmoqda...",
 
-        "api_error": "❌ Buyurtmani bajarib bo'lmadi.",
+        "api_error": (
+            "❌ Buyurtmani bajarib bo'lmadi."
+        ),
 
         "cancelled": "❌ Bekor qilindi.",
 
@@ -380,12 +385,16 @@ TEXTS = {
             "To'lovdan keyin chek rasmini yuboring."
         ),
 
-        "receipt_sent": "⏳ Chek administratorga yuborildi.",
+        "receipt_sent": (
+            "⏳ Chek administratorga yuborildi."
+        ),
 
-        "send_receipt": "❌ Chek rasmini yuboring.",
+        "send_receipt": (
+            "❌ Chek rasmini yuboring."
+        ),
 
         "gift_send_type": (
-            "🎁 <b>Sovg'a qanday yuboriladi?</b>"
+            "🎁 <b>Sovg'ani qanday yuborish?</b>"
         ),
 
         "gift_text": (
@@ -408,7 +417,9 @@ TEXTS = {
             "💰 Narx: {price:,} so'm\n\n"
             "Xaridni tasdiqlaysizmi?"
         ),
+
     },
+
 }
 
 
@@ -515,7 +526,10 @@ def get_user(
     return result
 
 
-def set_language(user_id, lang):
+def set_language(
+    user_id,
+    lang
+):
 
     conn = sqlite3.connect(DB_FILE)
 
@@ -527,14 +541,20 @@ def set_language(user_id, lang):
         SET lang = ?
         WHERE user_id = ?
         """,
-        (lang, user_id),
+        (
+            lang,
+            user_id,
+        ),
     )
 
     conn.commit()
     conn.close()
 
 
-def change_balance(user_id, amount):
+def change_balance(
+    user_id,
+    amount
+):
 
     conn = sqlite3.connect(DB_FILE)
 
@@ -546,7 +566,10 @@ def change_balance(user_id, amount):
         SET balance = balance + ?
         WHERE user_id = ?
         """,
-        (amount, user_id),
+        (
+            amount,
+            user_id,
+        ),
     )
 
     conn.commit()
@@ -574,7 +597,11 @@ def get_users():
     return rows
 
 
-def tr(user_id, key, **kwargs):
+def tr(
+    user_id,
+    key,
+    **kwargs
+):
 
     data = get_user(user_id)
 
@@ -588,7 +615,10 @@ def tr(user_id, key, **kwargs):
         key,
     )
 
-    kwargs.setdefault("user_id", user_id)
+    kwargs.setdefault(
+        "user_id",
+        user_id,
+    )
 
     return text.format(**kwargs)
 
@@ -631,7 +661,7 @@ async def check_ban(update):
 
 
 # =========================================================
-# WEB SERVER
+# WEB SERVER RENDER
 # =========================================================
 
 class Handler(BaseHTTPRequestHandler):
@@ -651,7 +681,11 @@ class Handler(BaseHTTPRequestHandler):
             b"Bot is running!"
         )
 
-    def log_message(self, format, *args):
+    def log_message(
+        self,
+        format,
+        *args
+    ):
 
         return
 
@@ -677,7 +711,7 @@ def run_web():
 
 
 # =========================================================
-# ГЛАВНАЯ КЛАВИАТУРА
+# ГЛАВНОЕ МЕНЮ
 # =========================================================
 
 def main_keyboard(user_id):
@@ -685,30 +719,35 @@ def main_keyboard(user_id):
     return InlineKeyboardMarkup([
 
         [
+
             InlineKeyboardButton(
                 tr(user_id, "services"),
                 callback_data="main_shop",
             )
+
         ],
 
         [
+
             InlineKeyboardButton(
                 tr(user_id, "refill"),
                 callback_data="main_refill",
             ),
 
-            # ИСПРАВЛЕНО
             InlineKeyboardButton(
-                tr(user_id, "profile_button"),
+                "👤 Профиль",
                 callback_data="main_profile",
             ),
+
         ],
 
         [
+
             InlineKeyboardButton(
                 tr(user_id, "language"),
                 callback_data="language_menu",
             )
+
         ],
 
     ])
@@ -718,7 +757,10 @@ def main_keyboard(user_id):
 # START
 # =========================================================
 
-async def start(update, context):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     context.user_data.clear()
 
@@ -746,6 +788,7 @@ async def start(update, context):
         reply_markup=main_keyboard(user.id),
 
         parse_mode="HTML",
+
     )
 
 
@@ -753,7 +796,10 @@ async def start(update, context):
 # ГЛАВНЫЕ КНОПКИ
 # =========================================================
 
-async def main_buttons(update, context):
+async def main_buttons(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     if await check_ban(update):
 
@@ -771,6 +817,9 @@ async def main_buttons(update, context):
         user.first_name,
     )
 
+
+    # НАЗАД В ГЛАВНОЕ МЕНЮ
+
     if query.data == "back_main":
 
         await query.message.edit_text(
@@ -785,33 +834,43 @@ async def main_buttons(update, context):
             reply_markup=main_keyboard(user.id),
 
             parse_mode="HTML",
+
         )
 
         return
+
+
+    # ЯЗЫК
 
     if query.data == "language_menu":
 
         keyboard = [
 
             [
+
                 InlineKeyboardButton(
                     "🇷🇺 Русский",
                     callback_data="lang_ru",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "🇺🇿 O'zbekcha",
                     callback_data="lang_uz",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     tr(user.id, "back"),
                     callback_data="back_main",
                 )
+
             ],
 
         ]
@@ -823,74 +882,105 @@ async def main_buttons(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
         return
 
+
+    # ПРОФИЛЬ
+
     if query.data == "main_profile":
 
-        keyboard = [[
+        username = user.username or "нет username"
 
-            InlineKeyboardButton(
-                tr(user.id, "back"),
-                callback_data="back_main",
-            )
+        keyboard = [
 
-        ]]
+            [
+
+                InlineKeyboardButton(
+                    tr(user.id, "back"),
+                    callback_data="back_main",
+                )
+
+            ]
+
+        ]
 
         await query.message.edit_text(
 
             tr(
+
                 user.id,
+
                 "profile",
+
+                username=username,
+
                 user_id=user.id,
+
                 balance=data["balance"],
+
             ),
 
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
         return
+
+
+    # МАГАЗИН
 
     if query.data == "main_shop":
 
         keyboard = [
 
             [
+
                 InlineKeyboardButton(
                     "💎 Stars",
                     callback_data="shop_stars",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "🌟 Premium",
                     callback_data="shop_premium",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "🎁 Подарки",
                     callback_data="shop_gifts",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "📱 Аккаунты",
                     callback_data="shop_accounts",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     tr(user.id, "back"),
                     callback_data="back_main",
                 )
+
             ],
 
         ]
@@ -902,40 +992,52 @@ async def main_buttons(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
         return
+
+
+    # STARS
 
     if query.data == "shop_stars":
 
         keyboard = [
 
             [
+
                 InlineKeyboardButton(
                     "50 Stars — 10 500 сум",
                     callback_data="buy_stars_50",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "100 Stars — 21 000 сум",
                     callback_data="buy_stars_100",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "✏️ Ввести количество",
                     callback_data="buy_stars",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     tr(user.id, "back"),
                     callback_data="main_shop",
                 )
+
             ],
 
         ]
@@ -951,40 +1053,52 @@ async def main_buttons(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
         return
+
+
+    # PREMIUM
 
     if query.data == "shop_premium":
 
         keyboard = [
 
             [
+
                 InlineKeyboardButton(
                     "3 месяца — 165 000 сум",
                     callback_data="buy_premium_3",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "6 месяцев — 222 000 сум",
                     callback_data="buy_premium_6",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "12 месяцев — 406 000 сум",
                     callback_data="buy_premium_12",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     tr(user.id, "back"),
                     callback_data="main_shop",
                 )
+
             ],
 
         ]
@@ -996,9 +1110,13 @@ async def main_buttons(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
         return
+
+
+    # ПОДАРКИ
 
     if query.data == "shop_gifts":
 
@@ -1022,8 +1140,11 @@ async def main_buttons(update, context):
         keyboard.append([
 
             InlineKeyboardButton(
+
                 tr(user.id, "back"),
+
                 callback_data="main_shop",
+
             )
 
         ])
@@ -1035,47 +1156,61 @@ async def main_buttons(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
         return
+
+
+    # АККАУНТЫ
 
     if query.data == "shop_accounts":
 
         keyboard = [
 
             [
+
                 InlineKeyboardButton(
                     "🇺🇿 Узбекистан",
                     callback_data="account_uz",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "🇨🇴 Колумбия",
                     callback_data="account_co",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "🇬🇧 Великобритания",
                     callback_data="account_uk",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     "🇺🇸 Америка",
                     callback_data="account_us",
                 )
+
             ],
 
             [
+
                 InlineKeyboardButton(
                     tr(user.id, "back"),
                     callback_data="main_shop",
                 )
+
             ],
 
         ]
@@ -1087,9 +1222,13 @@ async def main_buttons(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
         return
+
+
+    # ЗАКАЗ АККАУНТА
 
     if query.data.startswith("account_"):
 
@@ -1112,14 +1251,20 @@ async def main_buttons(update, context):
             ADMIN_ID,
 
             (
+
                 "📱 <b>НОВЫЙ ЗАКАЗ АККАУНТА</b>\n\n"
+
                 f"🌍 Страна: {escape(country)}\n"
+
                 f"👤 Заказал: "
                 f"@{escape(user.username or 'нет username')}\n"
+
                 f"🆔 ID: <code>{user.id}</code>"
+
             ),
 
             parse_mode="HTML",
+
         )
 
         await query.message.edit_text(
@@ -1131,7 +1276,10 @@ async def main_buttons(update, context):
 # ЯЗЫК
 # =========================================================
 
-async def language_callback(update, context):
+async def language_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
@@ -1141,26 +1289,38 @@ async def language_callback(update, context):
 
     if query.data == "lang_ru":
 
-        set_language(user_id, "ru")
+        set_language(
+            user_id,
+            "ru",
+        )
 
     elif query.data == "lang_uz":
 
-        set_language(user_id, "uz")
+        set_language(
+            user_id,
+            "uz",
+        )
 
     data = get_user(user_id)
 
     await query.message.edit_text(
 
         tr(
+
             user_id,
+
             "welcome",
+
             name=query.from_user.first_name,
+
             balance=data["balance"],
+
         ),
 
         reply_markup=main_keyboard(user_id),
 
         parse_mode="HTML",
+
     )
 
 
@@ -1229,9 +1389,13 @@ async def send_order_to_elder(
             )
 
         logger.info(
+
             "ELDER RESPONSE %s: %s",
+
             response.status_code,
+
             response.text,
+
         )
 
         if response.status_code != 200:
@@ -1258,7 +1422,10 @@ async def send_order_to_elder(
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
 
-async def buy_start(update, context):
+async def buy_start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
@@ -1267,6 +1434,7 @@ async def buy_start(update, context):
     context.user_data.clear()
 
     data = query.data
+
 
     if data == "buy_stars":
 
@@ -1278,9 +1446,11 @@ async def buy_start(update, context):
                 query.from_user.id,
                 "enter_stars",
             )
+
         )
 
         return BUY_AMOUNT
+
 
     if data.startswith("buy_stars_"):
 
@@ -1298,9 +1468,11 @@ async def buy_start(update, context):
                 query.from_user.id,
                 "enter_username",
             )
+
         )
 
         return BUY_USERNAME
+
 
     if data.startswith("buy_premium_"):
 
@@ -1318,21 +1490,28 @@ async def buy_start(update, context):
                 query.from_user.id,
                 "enter_username",
             )
+
         )
 
         return BUY_USERNAME
 
+
     return ConversationHandler.END
 
 
-async def buy_amount(update, context):
+async def buy_amount(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     text = update.message.text.strip()
 
     if not text.isdigit():
 
         await update.message.reply_text(
+
             "❌ Введите корректное количество Stars."
+
         )
 
         return BUY_AMOUNT
@@ -1342,7 +1521,9 @@ async def buy_amount(update, context):
     if amount < 50 or amount > 10000:
 
         await update.message.reply_text(
+
             "❌ Можно купить от 50 до 10000 Stars."
+
         )
 
         return BUY_AMOUNT
@@ -1352,27 +1533,39 @@ async def buy_amount(update, context):
     await update.message.reply_text(
 
         tr(
+
             update.effective_user.id,
+
             "enter_username",
+
         )
+
     )
 
     return BUY_USERNAME
 
 
-async def buy_username(update, context):
+async def buy_username(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     username = update.message.text.strip()
 
     username = username.replace("@", "")
 
     if not re.fullmatch(
+
         r"[A-Za-z0-9_]{5,32}",
+
         username,
+
     ):
 
         await update.message.reply_text(
+
             "❌ Введите корректный юзернейм."
+
         )
 
         return BUY_USERNAME
@@ -1387,6 +1580,7 @@ async def buy_username(update, context):
         "amount"
     )
 
+
     if product_type == "stars":
 
         price = amount * PRICE_PER_STAR
@@ -1395,14 +1589,24 @@ async def buy_username(update, context):
 
     else:
 
-        price = PREMIUM_PRICES.get(amount)
+        price = PREMIUM_PRICES.get(
+            amount
+        )
 
-        product = f"Telegram Premium на {amount} мес."
+        product = (
+            f"Telegram Premium на "
+            f"{amount} мес."
+        )
+
 
     data = get_user(
+
         user.id,
+
         user.username,
+
         user.first_name,
+
     )
 
     if data["balance"] < price:
@@ -1410,16 +1614,23 @@ async def buy_username(update, context):
         await update.message.reply_text(
 
             tr(
+
                 user.id,
+
                 "not_enough",
+
                 price=price,
+
                 balance=data["balance"],
+
             )
+
         )
 
         context.user_data.clear()
 
         return ConversationHandler.END
+
 
     context.user_data["username"] = username
 
@@ -1427,49 +1638,68 @@ async def buy_username(update, context):
 
     context.user_data["product"] = product
 
+
     keyboard = [
 
         [
 
             InlineKeyboardButton(
+
                 "✅ Купить",
+
                 callback_data="confirm_buy",
+
             ),
 
             InlineKeyboardButton(
+
                 "❌ Отмена",
+
                 callback_data="cancel_buy",
+
             ),
 
         ]
 
     ]
 
+
     await update.message.reply_text(
 
         tr(
+
             user.id,
+
             "confirm_order",
+
             product=product,
+
             username=username,
+
             price=price,
+
         ),
 
         reply_markup=InlineKeyboardMarkup(keyboard),
 
         parse_mode="HTML",
+
     )
 
     return BUY_CONFIRM
 
 
-async def buy_confirm(update, context):
+async def buy_confirm(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
     await query.answer()
 
     user = query.from_user
+
 
     if query.data == "cancel_buy":
 
@@ -1478,12 +1708,17 @@ async def buy_confirm(update, context):
         await query.message.edit_text(
 
             tr(
+
                 user.id,
+
                 "cancelled",
+
             )
+
         )
 
         return ConversationHandler.END
+
 
     product_type = context.user_data["product_type"]
 
@@ -1495,13 +1730,19 @@ async def buy_confirm(update, context):
 
     product = context.user_data["product"]
 
+
     await query.message.edit_text(
 
         tr(
+
             user.id,
+
             "processing",
+
         )
+
     )
+
 
     success = await send_order_to_elder(
 
@@ -1513,52 +1754,78 @@ async def buy_confirm(update, context):
 
     )
 
+
     if not success:
 
         await query.message.edit_text(
 
             tr(
+
                 user.id,
+
                 "api_error",
+
             )
+
         )
 
         context.user_data.clear()
 
         return ConversationHandler.END
 
+
     change_balance(
+
         user.id,
+
         -price,
+
     )
+
 
     await context.bot.send_message(
 
         ADMIN_ID,
 
         (
+
             "🛒 <b>НОВЫЙ ЗАКАЗ</b>\n\n"
+
             f"📦 Товар: {escape(product)}\n"
+
             f"👤 Получатель: @{escape(username)}\n"
+
             f"💰 Цена: {price:,} сум\n"
-            f"🆔 ID заказчика: <code>{user.id}</code>\n"
+
+            f"🆔 ID заказчика: "
+            f"<code>{user.id}</code>\n"
+
             f"👤 Заказал: "
             f"@{escape(user.username or 'нет username')}"
+
         ),
 
         parse_mode="HTML",
+
     )
+
 
     await query.message.edit_text(
 
         (
+
             "✅ <b>Заказ успешно выполнен!</b>\n\n"
+
             f"📦 {escape(product)}\n"
+
             f"👤 Получатель: @{escape(username)}"
+
         ),
 
         parse_mode="HTML",
+
     )
+
 
     context.user_data.clear()
 
@@ -1566,10 +1833,13 @@ async def buy_confirm(update, context):
 
 
 # =========================================================
-# ПОПОЛНЕНИЕ
+# ПОПОЛНЕНИЕ БАЛАНСА
 # =========================================================
 
-async def refill_start(update, context):
+async def refill_start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
@@ -1580,22 +1850,34 @@ async def refill_start(update, context):
     await query.message.edit_text(
 
         tr(
+
             query.from_user.id,
+
             "refill_enter",
+
         )
+
     )
 
     return REFILL_AMOUNT
 
 
-async def refill_amount(update, context):
+async def refill_amount(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
-    text = update.message.text.replace(" ", "")
+    text = update.message.text.replace(
+        " ",
+        "",
+    )
 
     if not text.isdigit():
 
         await update.message.reply_text(
+
             "❌ Введите корректную сумму."
+
         )
 
         return REFILL_AMOUNT
@@ -1605,7 +1887,9 @@ async def refill_amount(update, context):
     if amount <= 0:
 
         await update.message.reply_text(
+
             "❌ Введите корректную сумму."
+
         )
 
         return REFILL_AMOUNT
@@ -1615,46 +1899,65 @@ async def refill_amount(update, context):
     await update.message.reply_text(
 
         tr(
+
             update.effective_user.id,
+
             "refill_payment",
+
             amount=amount,
+
             card=CARD_NUMBER,
+
         ),
 
         parse_mode="HTML",
+
     )
 
     return REFILL_CHECK
 
 
-async def refill_check(update, context):
+async def refill_check(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     if not update.message.photo:
 
         await update.message.reply_text(
 
             tr(
+
                 update.effective_user.id,
+
                 "send_receipt",
+
             )
+
         )
 
         return REFILL_CHECK
 
+
     user = update.effective_user
 
     amount = context.user_data.get(
+
         "refill_amount",
+
         0,
+
     )
 
     photo = update.message.photo[-1]
+
 
     caption = (
 
         "💳 <b>НОВОЕ ПОПОЛНЕНИЕ</b>\n\n"
 
         f"👤 Пользователь: "
+
         f"@{escape(user.username or 'нет username')}\n"
 
         f"🆔 ID: <code>{user.id}</code>\n"
@@ -1663,23 +1966,40 @@ async def refill_check(update, context):
 
     )
 
+
     keyboard = InlineKeyboardMarkup([
 
         [
 
             InlineKeyboardButton(
+
                 "✅ Одобрить",
-                callback_data=f"approve_refill_{user.id}_{amount}",
+
+                callback_data=(
+
+                    f"approve_refill_"
+                    f"{user.id}_{amount}"
+
+                ),
+
             ),
 
             InlineKeyboardButton(
+
                 "❌ Отклонить",
-                callback_data=f"reject_refill_{user.id}",
+
+                callback_data=(
+
+                    f"reject_refill_{user.id}"
+
+                ),
+
             ),
 
         ]
 
     ])
+
 
     await context.bot.send_photo(
 
@@ -1695,32 +2015,44 @@ async def refill_check(update, context):
 
     )
 
+
     await update.message.reply_text(
 
         tr(
+
             user.id,
+
             "receipt_sent",
+
         )
+
     )
+
 
     context.user_data.clear()
 
     return ConversationHandler.END
 
 
-async def payment_callback(update, context):
+async def payment_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
     await query.answer()
 
+
     if query.from_user.id != ADMIN_ID:
 
         return
 
+
     parts = query.data.split("_")
 
     action = parts[0]
+
 
     if action == "approve":
 
@@ -1729,47 +2061,64 @@ async def payment_callback(update, context):
         amount = int(parts[3])
 
         change_balance(
+
             user_id,
+
             amount,
+
         )
+
 
         await context.bot.send_message(
 
             user_id,
 
             (
+
                 "✅ <b>Баланс пополнен!</b>\n\n"
+
                 f"💰 Сумма: {amount:,} сум"
+
             ),
 
             parse_mode="HTML",
+
         )
+
 
         await query.edit_message_caption(
 
             caption=query.message.caption
+
             + "\n\n✅ ОДОБРЕНО",
 
             parse_mode="HTML",
+
         )
+
 
     else:
 
         user_id = int(parts[2])
+
 
         await context.bot.send_message(
 
             user_id,
 
             "❌ Пополнение отклонено.",
+
         )
+
 
         await query.edit_message_caption(
 
             caption=query.message.caption
+
             + "\n\n❌ ОТКЛОНЕНО",
 
             parse_mode="HTML",
+
         )
 
 
@@ -1777,27 +2126,36 @@ async def payment_callback(update, context):
 # ПОДАРКИ
 # =========================================================
 
-async def gift_start(update, context):
+async def gift_start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
     await query.answer()
 
     gift_id = int(
+
         query.data.split("_")[1]
+
     )
 
     context.user_data.clear()
 
     context.user_data["gift_id"] = gift_id
 
+
     keyboard = [
 
         [
 
             InlineKeyboardButton(
+
                 "👤 Отправить не анонимно",
+
                 callback_data="gift_anonymous_no",
+
             )
 
         ],
@@ -1805,8 +2163,11 @@ async def gift_start(update, context):
         [
 
             InlineKeyboardButton(
+
                 "🕵️ Отправить анонимно",
+
                 callback_data="gift_anonymous_yes",
+
             )
 
         ],
@@ -1814,38 +2175,57 @@ async def gift_start(update, context):
         [
 
             InlineKeyboardButton(
+
                 "❌ Отмена",
+
                 callback_data="cancel_gift",
+
             )
 
         ],
 
     ]
 
+
     await query.message.edit_text(
 
         tr(
+
             query.from_user.id,
+
             "gift_send_type",
+
         ),
 
         reply_markup=InlineKeyboardMarkup(keyboard),
 
         parse_mode="HTML",
+
     )
 
     return GIFT_SEND_TYPE
 
 
-async def gift_send_type(update, context):
+async def gift_send_type(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
     await query.answer()
 
+
     if query.data == "cancel_gift":
 
-        return await cancel(update, context)
+        return await cancel(
+
+            update,
+
+            context,
+
+        )
+
 
     context.user_data["anonymous"] = (
 
@@ -1853,13 +2233,17 @@ async def gift_send_type(update, context):
 
     )
 
+
     keyboard = [
 
         [
 
             InlineKeyboardButton(
+
                 "✍️ Добавить текст",
+
                 callback_data="gift_text_yes",
+
             )
 
         ],
@@ -1867,8 +2251,11 @@ async def gift_send_type(update, context):
         [
 
             InlineKeyboardButton(
+
                 "➡️ Без текста",
+
                 callback_data="gift_text_no",
+
             )
 
         ],
@@ -1876,13 +2263,17 @@ async def gift_send_type(update, context):
         [
 
             InlineKeyboardButton(
+
                 "❌ Отмена",
+
                 callback_data="cancel_gift",
+
             )
 
         ],
 
     ]
+
 
     await query.message.edit_text(
 
@@ -1891,58 +2282,88 @@ async def gift_send_type(update, context):
         reply_markup=InlineKeyboardMarkup(keyboard),
 
         parse_mode="HTML",
+
     )
 
     return GIFT_TEXT
 
 
-async def gift_text_choice(update, context):
+async def gift_text_choice(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
     await query.answer()
 
+
     if query.data == "cancel_gift":
 
-        return await cancel(update, context)
+        return await cancel(
+
+            update,
+
+            context,
+
+        )
+
 
     if query.data == "gift_text_yes":
 
         await query.message.edit_text(
 
             tr(
+
                 query.from_user.id,
+
                 "gift_text",
+
             )
+
         )
 
         return GIFT_TEXT
+
 
     context.user_data["gift_text"] = ""
 
     await query.message.edit_text(
 
         tr(
+
             query.from_user.id,
+
             "gift_username",
+
         )
+
     )
 
     return GIFT_USERNAME
 
 
-async def gift_text_input(update, context):
+async def gift_text_input(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     context.user_data["gift_text"] = (
+
         update.message.text.strip()
+
     )
 
     await update.message.reply_text(
 
         tr(
+
             update.effective_user.id,
+
             "gift_username",
+
         )
+
     )
 
     return GIFT_USERNAME
@@ -1980,22 +2401,38 @@ async def send_custom_emoji(
     )
 
 
-async def gift_username(update, context):
+async def gift_username(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     username = update.message.text.strip()
 
-    username = username.replace("@", "")
+    username = username.replace(
+
+        "@",
+
+        "",
+
+    )
+
 
     if not re.fullmatch(
+
         r"[A-Za-z0-9_]{5,32}",
+
         username,
+
     ):
 
         await update.message.reply_text(
+
             "❌ Введите корректный юзернейм."
+
         )
 
         return GIFT_USERNAME
+
 
     user = update.effective_user
 
@@ -2003,42 +2440,67 @@ async def gift_username(update, context):
 
     gift = GIFTS[gift_id]
 
+
     data = get_user(
+
         user.id,
+
         user.username,
+
         user.first_name,
+
     )
+
 
     if data["balance"] < gift["price"]:
 
         await update.message.reply_text(
 
             tr(
+
                 user.id,
+
                 "not_enough",
+
                 price=gift["price"],
+
                 balance=data["balance"],
+
             )
+
         )
 
         context.user_data.clear()
 
         return ConversationHandler.END
 
+
     anonymous = context.user_data.get(
+
         "anonymous",
+
         False,
+
     )
+
 
     gift_text = context.user_data.get(
+
         "gift_text",
+
         "",
+
     )
 
+
     change_balance(
+
         user.id,
+
         -gift["price"],
+
     )
+
 
     sender = (
 
@@ -2052,6 +2514,7 @@ async def gift_username(update, context):
 
     )
 
+
     await send_custom_emoji(
 
         context.bot,
@@ -2064,6 +2527,7 @@ async def gift_username(update, context):
 
     )
 
+
     await context.bot.send_message(
 
         ADMIN_ID,
@@ -2072,7 +2536,8 @@ async def gift_username(update, context):
 
             "🎁 <b>НОВЫЙ ЗАКАЗ ПОДАРКА</b>\n\n"
 
-            f"🎁 Подарок: <b>{escape(gift['name'])}</b>\n"
+            f"🎁 Подарок: <b>"
+            f"{escape(gift['name'])}</b>\n"
 
             f"💰 Цена: {gift['price']:,} сум\n\n"
 
@@ -2084,21 +2549,30 @@ async def gift_username(update, context):
             f"🎯 Получатель: @{escape(username)}\n"
 
             f"📝 Текст: "
+
             f"{escape(gift_text) if gift_text else 'без текста'}\n\n"
 
             "⚠️ Отправьте подарок получателю."
+
         ),
 
         parse_mode="HTML",
+
     )
+
 
     await update.message.reply_text(
 
         tr(
+
             user.id,
+
             "gift_success",
+
         )
+
     )
+
 
     context.user_data.clear()
 
@@ -2109,11 +2583,15 @@ async def gift_username(update, context):
 # ОТМЕНА
 # =========================================================
 
-async def cancel(update, context):
+async def cancel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     context.user_data.clear()
 
     user_id = update.effective_user.id
+
 
     if update.callback_query:
 
@@ -2124,9 +2602,13 @@ async def cancel(update, context):
         await query.message.edit_text(
 
             tr(
+
                 user_id,
+
                 "cancelled",
+
             )
+
         )
 
     else:
@@ -2134,10 +2616,15 @@ async def cancel(update, context):
         await update.message.reply_text(
 
             tr(
+
                 user_id,
+
                 "cancelled",
+
             )
+
         )
+
 
     return ConversationHandler.END
 
@@ -2146,30 +2633,43 @@ async def cancel(update, context):
 # АДМИН
 # =========================================================
 
-def is_admin(user_id):
+def is_admin(
+    user_id
+):
 
     return user_id == ADMIN_ID
 
 
-async def admin(update, context):
+async def admin(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     if not is_admin(
+
         update.effective_user.id
+
     ):
 
         await update.message.reply_text(
+
             "❌ Нет доступа."
+
         )
 
         return
+
 
     keyboard = [
 
         [
 
             InlineKeyboardButton(
+
                 "👥 Пользователи",
+
                 callback_data="admin_users",
+
             )
 
         ],
@@ -2177,8 +2677,11 @@ async def admin(update, context):
         [
 
             InlineKeyboardButton(
+
                 "💰 Балансы",
+
                 callback_data="admin_balances",
+
             )
 
         ],
@@ -2186,13 +2689,17 @@ async def admin(update, context):
         [
 
             InlineKeyboardButton(
+
                 "📊 Статистика",
+
                 callback_data="admin_stats",
+
             )
 
         ],
 
     ]
+
 
     await update.message.reply_text(
 
@@ -2201,41 +2708,58 @@ async def admin(update, context):
         reply_markup=InlineKeyboardMarkup(keyboard),
 
         parse_mode="HTML",
+
     )
 
 
-async def admin_callback(update, context):
+async def admin_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     query = update.callback_query
 
     await query.answer()
 
+
     if not is_admin(
+
         query.from_user.id
+
     ):
 
         return
+
 
     if query.data == "admin_users":
 
         users = get_users()
 
+
         if not users:
 
             await query.message.edit_text(
+
                 "👥 Пользователей пока нет."
+
             )
 
             return
 
+
         text = "👥 <b>ПОЛЬЗОВАТЕЛИ</b>\n\n"
 
+
         for index, row in enumerate(
+
             users[:50],
+
             1,
+
         ):
 
             user_id, username, name, balance, lang, banned = row
+
 
             username_text = (
 
@@ -2249,6 +2773,7 @@ async def admin_callback(update, context):
 
             )
 
+
             status = (
 
                 "🔴 БАН"
@@ -2261,9 +2786,11 @@ async def admin_callback(update, context):
 
             )
 
+
             text += (
 
                 f"<b>{index}. "
+
                 f"{escape(name or 'Без имени')}</b>\n"
 
                 f"👤 {username_text}\n"
@@ -2278,6 +2805,7 @@ async def admin_callback(update, context):
 
             )
 
+
         await query.message.edit_text(
 
             text,
@@ -2287,8 +2815,11 @@ async def admin_callback(update, context):
                 [
 
                     InlineKeyboardButton(
+
                         "⬅️ Назад",
+
                         callback_data="admin_back",
+
                     )
 
                 ]
@@ -2296,18 +2827,24 @@ async def admin_callback(update, context):
             ]),
 
             parse_mode="HTML",
+
         )
 
         return
+
 
     if query.data == "admin_balances":
 
         users = get_users()
 
         total = sum(
+
             row[3]
+
             for row in users
+
         )
+
 
         await query.message.edit_text(
 
@@ -2326,8 +2863,11 @@ async def admin_callback(update, context):
                 [
 
                     InlineKeyboardButton(
+
                         "⬅️ Назад",
+
                         callback_data="admin_back",
+
                     )
 
                 ]
@@ -2335,25 +2875,38 @@ async def admin_callback(update, context):
             ]),
 
             parse_mode="HTML",
+
         )
 
         return
+
 
     if query.data == "admin_stats":
 
         users = get_users()
 
+
         active = sum(
+
             1
+
             for row in users
+
             if not row[5]
+
         )
 
+
         banned = sum(
+
             1
+
             for row in users
+
             if row[5]
+
         )
+
 
         await query.message.edit_text(
 
@@ -2374,8 +2927,11 @@ async def admin_callback(update, context):
                 [
 
                     InlineKeyboardButton(
+
                         "⬅️ Назад",
+
                         callback_data="admin_back",
+
                     )
 
                 ]
@@ -2383,9 +2939,11 @@ async def admin_callback(update, context):
             ]),
 
             parse_mode="HTML",
+
         )
 
         return
+
 
     if query.data == "admin_back":
 
@@ -2394,8 +2952,11 @@ async def admin_callback(update, context):
             [
 
                 InlineKeyboardButton(
+
                     "👥 Пользователи",
+
                     callback_data="admin_users",
+
                 )
 
             ],
@@ -2403,8 +2964,11 @@ async def admin_callback(update, context):
             [
 
                 InlineKeyboardButton(
+
                     "💰 Балансы",
+
                     callback_data="admin_balances",
+
                 )
 
             ],
@@ -2412,13 +2976,17 @@ async def admin_callback(update, context):
             [
 
                 InlineKeyboardButton(
+
                     "📊 Статистика",
+
                     callback_data="admin_stats",
+
                 )
 
             ],
 
         ]
+
 
         await query.message.edit_text(
 
@@ -2427,6 +2995,7 @@ async def admin_callback(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
+
         )
 
 
@@ -2434,7 +3003,10 @@ async def admin_callback(update, context):
 # НЕИЗВЕСТНЫЕ CALLBACK
 # =========================================================
 
-async def unknown_callback(update, context):
+async def unknown_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
 
     await update.callback_query.answer(
 
@@ -2453,10 +3025,15 @@ def main():
 
     init_db()
 
+
     threading.Thread(
+
         target=run_web,
+
         daemon=True,
+
     ).start()
+
 
     application = (
 
@@ -2468,23 +3045,32 @@ def main():
 
     )
 
+
     application.add_handler(
 
         CommandHandler(
+
             "start",
+
             start,
+
         )
 
     )
+
 
     application.add_handler(
 
         CommandHandler(
+
             "admin",
+
             admin,
+
         )
 
     )
+
 
     application.add_handler(
 
@@ -2498,6 +3084,7 @@ def main():
 
     )
 
+
     application.add_handler(
 
         CallbackQueryHandler(
@@ -2510,6 +3097,7 @@ def main():
 
     )
 
+
     application.add_handler(
 
         CallbackQueryHandler(
@@ -2521,6 +3109,7 @@ def main():
         )
 
     )
+
 
     application.add_handler(
 
@@ -2561,6 +3150,7 @@ def main():
                     MessageHandler(
 
                         filters.TEXT
+
                         & ~filters.COMMAND,
 
                         refill_amount,
@@ -2594,6 +3184,7 @@ def main():
                     MessageHandler(
 
                         filters.TEXT
+
                         & ~filters.COMMAND,
 
                         buy_amount,
@@ -2607,6 +3198,7 @@ def main():
                     MessageHandler(
 
                         filters.TEXT
+
                         & ~filters.COMMAND,
 
                         buy_username,
@@ -2633,7 +3225,15 @@ def main():
 
                         gift_send_type,
 
-                        pattern=r"^(gift_anonymous_yes|gift_anonymous_no|cancel_gift)$",
+                        pattern=(
+
+                            r"^(gift_anonymous_yes|"
+
+                            r"gift_anonymous_no|"
+
+                            r"cancel_gift)$"
+
+                        ),
 
                     )
 
@@ -2645,13 +3245,22 @@ def main():
 
                         gift_text_choice,
 
-                        pattern=r"^(gift_text_yes|gift_text_no|cancel_gift)$",
+                        pattern=(
+
+                            r"^(gift_text_yes|"
+
+                            r"gift_text_no|"
+
+                            r"cancel_gift)$"
+
+                        ),
 
                     ),
 
                     MessageHandler(
 
                         filters.TEXT
+
                         & ~filters.COMMAND,
 
                         gift_text_input,
@@ -2665,6 +3274,7 @@ def main():
                     MessageHandler(
 
                         filters.TEXT
+
                         & ~filters.COMMAND,
 
                         gift_username,
@@ -2678,13 +3288,19 @@ def main():
             fallbacks=[
 
                 CommandHandler(
+
                     "cancel",
+
                     cancel,
+
                 ),
 
                 CallbackQueryHandler(
+
                     cancel,
+
                     pattern=r"^cancel_",
+
                 ),
 
             ],
@@ -2695,17 +3311,23 @@ def main():
 
     )
 
+
+    # =====================================================
+    # ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ГЛАВНЫХ КНОПОК
+    # =====================================================
+
     application.add_handler(
 
         CallbackQueryHandler(
 
             main_buttons,
 
-            pattern=r"^(main_.*|shop_.*|back_main|account_.*|language_menu)$",
+            pattern=r"^(main_|shop_|back_main|account_|language_menu)",
 
         )
 
     )
+
 
     application.add_handler(
 
@@ -2717,7 +3339,9 @@ def main():
 
     )
 
+
     logger.info("BOT STARTED")
+
 
     application.run_polling(
 
