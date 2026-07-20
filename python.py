@@ -2348,6 +2348,18 @@ async def payment_callback(
 
 
 # =========================================================
+# ОШИБКИ
+# =========================================================
+
+async def error_handler(update, context):
+
+    logger.exception(
+        "Unhandled exception while processing update",
+        exc_info=context.error
+    )
+
+
+# =========================================================
 # ЗАПУСК
 # =========================================================
 
@@ -2366,6 +2378,8 @@ def main():
         .token(BOT_TOKEN)
         .build()
     )
+
+    app.add_error_handler(error_handler)
 
     app.add_handler(
         ConversationHandler(
@@ -2467,6 +2481,28 @@ def main():
                 CommandHandler(
                     "start",
                     start
+                ),
+
+                # Глобальные кнопки.
+                # Они обязательно должны работать даже если пользователь
+                # случайно остался внутри ConversationHandler.
+                CallbackQueryHandler(
+                    language_callback,
+                    pattern=r"^lang_|^language_menu$"
+                ),
+
+                CallbackQueryHandler(
+                    main_buttons,
+                    pattern=(
+                        r"^main_shop$|"
+                        r"^main_profile$|"
+                        r"^back_main$|"
+                        r"^shop_stars$|"
+                        r"^shop_premium$|"
+                        r"^shop_gifts$|"
+                        r"^shop_accounts$|"
+                        r"^account_"
+                    )
                 )
             ],
 
