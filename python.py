@@ -3506,14 +3506,12 @@ def main():
 
 
 async def unknown_callback(update, context):
+    query = update.callback_query
 
-    await update.callback_query.answer(
-
-        "❌ Эта кнопка больше неактивна.",
-
-        show_alert=True,
-
-    )
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
