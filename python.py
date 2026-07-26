@@ -1190,6 +1190,8 @@ async def main_buttons(update, context):
         await query.message.edit_text(
             "✅ Заявка принята!"
         )
+        
+        return
 
 
 # =========================================================
@@ -1328,53 +1330,30 @@ async def send_order_to_elder(
 # =========================================================
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
-
 async def buy_start(update, context):
 
     query = update.callback_query
-
     await query.answer()
 
     context.user_data.clear()
 
     data = query.data
 
-    if data == "buy_stars":
-
-        context.user_data["product_type"] = "stars"
-
-        await query.message.edit_text(
-
-            tr(
-                query.from_user.id,
-                "enter_stars",
-            )
-
-        )
-
-        return BUY_AMOUNT
-
-
+    # Покупка Stars
     if data.startswith("buy_stars_"):
 
-        amount = int(
-            data.split("_")[2]
-        )
+        amount = int(data.split("_")[2])
 
         context.user_data["product_type"] = "stars"
-
         context.user_data["amount"] = amount
 
         await query.message.edit_text(
-
-            tr(
-                query.from_user.id,
-                "enter_username",
-            )
-
+            f"⭐ Вы выбрали {amount} Stars.\n\nВведите @username Telegram:"
         )
 
         return BUY_USERNAME
+
+    # Покупка Premium
 
 
     if data.startswith("buy_premium_"):
@@ -1386,6 +1365,7 @@ async def buy_start(update, context):
         context.user_data["product_type"] = "premium"
 
         context.user_data["amount"] = months
+        context.user_data["months"] = months
 
         await query.message.edit_text(
 
@@ -3085,11 +3065,8 @@ def main():
             ),
 
             CallbackQueryHandler(
-
                 buy_start,
-
-                pattern=r"^buy_(stars|premium)(?:_\d+)?$",
-
+                pattern=r"^buy_.*$",
             ),
 
             CallbackQueryHandler(
@@ -3463,21 +3440,10 @@ def main():
     # =====================================================
 
     application.add_handler(
-
         CallbackQueryHandler(
-
             main_buttons,
-
-            pattern=(
-
-                r"^(main_shop|shop_|"
-
-                r"back_main|account_|language_menu)$"
-
-            ),
-
+            pattern=r"^(main_shop|shop_.*|buy_.*|gift_.*|account_.*|back_main|language_menu)$",
         )
-
     )
 
 
