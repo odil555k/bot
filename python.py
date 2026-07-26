@@ -294,7 +294,7 @@ TEXTS = {
         ),
 
         "gift_success": (
-            "✅ <b>Заявка на подарок принята!</b>\n\n"
+            "✅ Заявка на подарок принята!\n\n"
             "Мы обработаем заказ."
         ),
 
@@ -1190,7 +1190,7 @@ async def main_buttons(update, context):
         await query.message.edit_text(
             "✅ Заявка принята!"
         )
-        
+
         return
 
 
