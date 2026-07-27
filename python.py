@@ -1322,7 +1322,21 @@ async def send_order_to_elder(
 # =========================================================
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
+
+
+
 async def buy_start(update, context):
+    async def buy_start(update, context):
+
+        query = update.callback_query
+        await query.answer()
+
+        context.user_data.clear()
+
+        data = query.data
+
+        # Покупка Stars
+        if data.startswith("buy_stars_"):
 
     query = update.callback_query
     await query.answer()
