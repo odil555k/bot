@@ -1326,17 +1326,6 @@ async def send_order_to_elder(
 
 
 async def buy_start(update, context):
-    async def buy_start(update, context):
-
-        query = update.callback_query
-        await query.answer()
-
-        context.user_data.clear()
-
-        data = query.data
-
-        # Покупка Stars
-        if data.startswith("buy_stars_"):
 
     query = update.callback_query
     await query.answer()
@@ -1345,7 +1334,18 @@ async def buy_start(update, context):
 
     data = query.data
 
-    # Покупка Stars
+    # Ввести своё количество Stars
+    if data == "buy_stars":
+
+        context.user_data["product_type"] = "stars"
+
+        await query.message.edit_text(
+            "⭐ Введите количество Stars (от 50 до 10000):"
+        )
+
+        return BUY_AMOUNT
+
+    # Покупка готового количества Stars
     if data.startswith("buy_stars_"):
 
         amount = int(data.split("_")[2])
@@ -1359,6 +1359,22 @@ async def buy_start(update, context):
 
         return BUY_USERNAME
 
+    # Покупка Premium
+    if data.startswith("buy_premium_"):
+
+        months = int(data.split("_")[2])
+
+        context.user_data["product_type"] = "premium"
+        context.user_data["amount"] = months
+        context.user_data["months"] = months
+
+        await query.message.edit_text(
+            tr(query.from_user.id, "enter_username")
+        )
+
+        return BUY_USERNAME
+
+    return ConversationHandler.END
     # Покупка Premium
 
 
@@ -3452,7 +3468,7 @@ def main():
     application.add_handler(
         CallbackQueryHandler(
             main_buttons,
-            pattern=r"^(main_shop|shop_.*|buy_.*|gift_.*|account_.*|back_main|language_menu)$",
+            pattern=r"^(main_shop|shop_.*|account_.*|back_main|language_menu)$",
         )
     )
 
