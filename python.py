@@ -1824,6 +1824,10 @@ async def payment_callback(update, context):
 
     await query.answer()
 
+    print("========== PAYMENT CALLBACK ==========")
+    print("CALLBACK:", query.data)
+    print("ADMIN ID:", query.from_user.id)
+
     if query.from_user.id != ADMIN_ID:
         return
 
