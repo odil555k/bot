@@ -1725,12 +1725,14 @@ async def refill_amount(update, context):
     base_amount = int(text)
 
     if base_amount <= 0:
+
         await update.message.reply_text(
             "❌ Введите корректную сумму."
         )
 
         return REFILL_AMOUNT
 
+    # Создаём уникальную сумму
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
 
@@ -1750,15 +1752,7 @@ async def refill_amount(update, context):
         if cursor.fetchone() is None:
             break
 
-    conn.close()
-
-    context.user_data["refill_amount"] = amount
-    context.user_data["refill_user_id"] = update.effective_user.id
-
-    conn = sqlite3.connect(DB_FILE)
-
-    cursor = conn.cursor()
-
+    # Сохраняем заявку
     cursor.execute(
         """
         INSERT OR REPLACE INTO pending_refills
@@ -1774,22 +1768,19 @@ async def refill_amount(update, context):
     conn.commit()
     conn.close()
 
+    context.user_data["refill_amount"] = amount
+    context.user_data["refill_user_id"] = update.effective_user.id
+
     await update.message.reply_text(
 
         tr(
-
             update.effective_user.id,
-
             "refill_payment",
-
             amount=amount,
-
             card=CARD_NUMBER,
-
         ),
 
         parse_mode="HTML",
-
     )
 
     return REFILL_CHECK
@@ -1797,113 +1788,14 @@ async def refill_amount(update, context):
 
 async def refill_check(update, context):
 
-    # Автоматическое пополнение по SMS от 5800
-    if update.message.text:
-
-        if (
-            update.message.forward_origin
-            and getattr(
-                update.message.forward_origin,
-                "sender_user",
-                None
-            )
-            and update.message.forward_origin.sender_user.id == ADMIN_ID
-        ):
-
-            text = update.message.text
-
-            if "From: 5800" in text and "Miqdor:" in text:
-
-                await update.message.reply_text(
-                    "📨 SMS получено. Обрабатываю..."
-                )
-
-                return ConversationHandler.END
-
-    # Обычное пополнение по чеку
-    if not update.message.photo:
+    if update.message and update.message.text:
 
         await update.message.reply_text(
-
-            tr(
-                update.effective_user.id,
-                "send_receipt",
-            )
-
+            "⏳ Ожидайте поступления оплаты.\n\n"
+            "После оплаты баланс пополнится автоматически."
         )
 
-        return REFILL_CHECK
-
-    user = update.effective_user
-
-    amount = context.user_data.get(
-        "refill_amount",
-        0,
-    )
-
-    photo = update.message.photo[-1]
-
-    caption = (
-
-        "💳 <b>НОВОЕ ПОПОЛНЕНИЕ</b>\n\n"
-
-        f"👤 Пользователь: "
-        f"@{escape(user.username or 'нет username')}\n"
-
-        f"🆔 ID: <code>{user.id}</code>\n"
-
-        f"💰 Сумма: <b>{amount:,} сум</b>"
-
-    )
-
-    keyboard = InlineKeyboardMarkup([
-
-        [
-
-            InlineKeyboardButton(
-                "✅ Одобрить",
-                callback_data=(
-                    f"approve_refill_{user.id}_{amount}"
-                ),
-            ),
-
-            InlineKeyboardButton(
-                "❌ Отклонить",
-                callback_data=(
-                    f"reject_refill_{user.id}"
-                ),
-            ),
-
-        ]
-
-    ])
-
-    await context.bot.send_photo(
-
-        chat_id=ADMIN_ID,
-
-        photo=photo.file_id,
-
-        caption=caption,
-
-        parse_mode="HTML",
-
-        reply_markup=keyboard,
-
-    )
-
-    await update.message.reply_text(
-
-        tr(
-            user.id,
-            "receipt_sent",
-        )
-
-    )
-
-    context.user_data.clear()
-
-    return ConversationHandler.END
+    return REFILL_CHECK
 
 
 async def process_bank_sms(update, context):
@@ -1911,28 +1803,29 @@ async def process_bank_sms(update, context):
     if not update.message or not update.message.text:
         return
 
-    # Проверяем, что SMS переслано именно от ADMIN_ID
-    if not (
-        update.message.forward_origin
-        and getattr(
-            update.message.forward_origin,
-            "sender_user",
-            None
-        )
-        and update.message.forward_origin.sender_user.id == ADMIN_ID
-    ):
+    if not update.message.forward_origin:
+        return
+
+    sender = getattr(
+        update.message.forward_origin,
+        "sender_user",
+        None,
+    )
+
+    if not sender:
+        return
+
+    if sender.id != ADMIN_ID:
         return
 
     text = update.message.text
 
-    # Проверяем банковское SMS
     if "From: 5800" not in text:
         return
 
     if "Miqdor:" not in text:
         return
 
-    # Ищем сумму
     match = re.search(
         r"Miqdor:\s*([\d\s]+(?:\.\d+)?)\s*UZS",
         text,
@@ -1948,7 +1841,6 @@ async def process_bank_sms(update, context):
     )
 
     conn = sqlite3.connect(DB_FILE)
-
     cursor = conn.cursor()
 
     cursor.execute(
@@ -1993,79 +1885,15 @@ async def process_bank_sms(update, context):
         parse_mode="HTML",
     )
 
-
-async def payment_callback(update, context):
-
-    query = update.callback_query
-
-    await query.answer()
-
-    print("========== PAYMENT CALLBACK ==========")
-    print("CALLBACK:", query.data)
-    print("ADMIN ID:", query.from_user.id)
-
-    if query.from_user.id != ADMIN_ID:
-        return
-
-    parts = query.data.split("_")
-
-    if parts[0] == "approve":
-
-        user_id = int(parts[2])
-
-        amount = int(parts[3])
-
-        change_balance(
-            user_id,
-            amount,
-        )
-
-        await context.bot.send_message(
-
-            user_id,
-
-            (
-
-                "✅ <b>Баланс пополнен!</b>\n\n"
-
-                f"💰 Сумма: {amount:,} сум"
-
-            ),
-
-            parse_mode="HTML",
-
-        )
-
-        await query.edit_message_caption(
-
-            caption=query.message.caption
-            + "\n\n✅ ОДОБРЕНО",
-
-            parse_mode="HTML",
-
-        )
-
-    else:
-
-        user_id = int(parts[2])
-
-        await context.bot.send_message(
-
-            user_id,
-
-            "❌ Пополнение отклонено.",
-
-        )
-
-        await query.edit_message_caption(
-
-            caption=query.message.caption
-            + "\n\n❌ ОТКЛОНЕНО",
-
-            parse_mode="HTML",
-
-        )
-
+    await context.bot.send_message(
+        ADMIN_ID,
+        (
+            "✅ <b>Автопополнение выполнено</b>\n\n"
+            f"👤 ID: <code>{user_id}</code>\n"
+            f"💰 Сумма: <b>{amount:,} сум</b>"
+        ),
+        parse_mode="HTML",
+    )
 
 # =========================================================
 # ПОДАРКИ
@@ -3282,23 +3110,10 @@ def main():
             ],
 
             REFILL_CHECK: [
-
                 MessageHandler(
-
-                    filters.PHOTO,
-
+                    filters.TEXT & ~filters.COMMAND,
                     refill_check,
-
                 ),
-
-                MessageHandler(
-
-                    filters.ALL,
-
-                    refill_check,
-
-                ),
-
             ],
 
             BUY_AMOUNT: [
