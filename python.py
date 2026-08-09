@@ -3518,7 +3518,7 @@ def main():
 
     application.add_handler(
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
+            filters.TEXT & filters.FORWARDED,
             process_bank_sms,
         )
     )
