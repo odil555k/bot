@@ -1,5 +1,6 @@
 import os
 import re
+import random
 import uuid
 import sqlite3
 import logging
@@ -421,6 +422,13 @@ def init_db():
             balance INTEGER DEFAULT 0,
             lang TEXT DEFAULT 'ru',
             is_banned INTEGER DEFAULT 0
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pending_refills (
+            amount INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL
         )
     """)
 
@@ -1714,17 +1722,57 @@ async def refill_amount(update, context):
 
         return REFILL_AMOUNT
 
-    amount = int(text)
+    base_amount = int(text)
 
-    if amount <= 0:
-
+    if base_amount <= 0:
         await update.message.reply_text(
             "❌ Введите корректную сумму."
         )
 
         return REFILL_AMOUNT
 
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    while True:
+
+        amount = base_amount + random.randint(1, 999)
+
+        cursor.execute(
+            """
+            SELECT 1
+            FROM pending_refills
+            WHERE amount = ?
+            """,
+            (amount,),
+        )
+
+        if cursor.fetchone() is None:
+            break
+
+    conn.close()
+
     context.user_data["refill_amount"] = amount
+    context.user_data["refill_user_id"] = update.effective_user.id
+
+    conn = sqlite3.connect(DB_FILE)
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO pending_refills
+        (amount, user_id)
+        VALUES (?, ?)
+        """,
+        (
+            amount,
+            update.effective_user.id,
+        ),
+    )
+
+    conn.commit()
+    conn.close()
 
     await update.message.reply_text(
 
@@ -1749,6 +1797,30 @@ async def refill_amount(update, context):
 
 async def refill_check(update, context):
 
+    # Автоматическое пополнение по SMS от 5800
+    if update.message.text:
+
+        if (
+            update.message.forward_origin
+            and getattr(
+                update.message.forward_origin,
+                "sender_user",
+                None
+            )
+            and update.message.forward_origin.sender_user.id == ADMIN_ID
+        ):
+
+            text = update.message.text
+
+            if "From: 5800" in text and "Miqdor:" in text:
+
+                await update.message.reply_text(
+                    "📨 SMS получено. Обрабатываю..."
+                )
+
+                return ConversationHandler.END
+
+    # Обычное пополнение по чеку
     if not update.message.photo:
 
         await update.message.reply_text(
@@ -1789,23 +1861,17 @@ async def refill_check(update, context):
         [
 
             InlineKeyboardButton(
-
                 "✅ Одобрить",
-
                 callback_data=(
                     f"approve_refill_{user.id}_{amount}"
                 ),
-
             ),
 
             InlineKeyboardButton(
-
                 "❌ Отклонить",
-
                 callback_data=(
                     f"reject_refill_{user.id}"
                 ),
-
             ),
 
         ]
@@ -1838,6 +1904,94 @@ async def refill_check(update, context):
     context.user_data.clear()
 
     return ConversationHandler.END
+
+
+async def process_bank_sms(update, context):
+
+    if not update.message or not update.message.text:
+        return
+
+    # Проверяем, что SMS переслано именно от ADMIN_ID
+    if not (
+        update.message.forward_origin
+        and getattr(
+            update.message.forward_origin,
+            "sender_user",
+            None
+        )
+        and update.message.forward_origin.sender_user.id == ADMIN_ID
+    ):
+        return
+
+    text = update.message.text
+
+    # Проверяем банковское SMS
+    if "From: 5800" not in text:
+        return
+
+    if "Miqdor:" not in text:
+        return
+
+    # Ищем сумму
+    match = re.search(
+        r"Miqdor:\s*([\d\s]+(?:\.\d+)?)\s*UZS",
+        text,
+    )
+
+    if not match:
+        return
+
+    amount = int(
+        float(
+            match.group(1).replace(" ", "")
+        )
+    )
+
+    conn = sqlite3.connect(DB_FILE)
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT user_id
+        FROM pending_refills
+        WHERE amount = ?
+        """,
+        (amount,),
+    )
+
+    row = cursor.fetchone()
+
+    if row is None:
+        conn.close()
+        return
+
+    user_id = row[0]
+
+    change_balance(
+        user_id,
+        amount,
+    )
+
+    cursor.execute(
+        """
+        DELETE FROM pending_refills
+        WHERE amount = ?
+        """,
+        (amount,),
+    )
+
+    conn.commit()
+    conn.close()
+
+    await context.bot.send_message(
+        user_id,
+        (
+            "✅ <b>Баланс пополнен автоматически!</b>\n\n"
+            f"💰 Зачислено: <b>{amount:,} сум</b>"
+        ),
+        parse_mode="HTML",
+    )
 
 
 async def payment_callback(update, context):
@@ -3360,6 +3514,13 @@ def main():
 
         allow_reentry=True,
 
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            process_bank_sms,
+        )
     )
 
     application.add_handler(conversation_handler)
