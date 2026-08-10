@@ -41,7 +41,7 @@ DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
-    "УКАЖИ_НОМЕР_КАРТЫ"
+    "5614 6835 8985 1641"
 )
 
 PRICE_PER_STAR = 210
