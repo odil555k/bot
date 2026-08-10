@@ -1,6 +1,5 @@
 import os
 import re
-import random
 import uuid
 import sqlite3
 import logging
@@ -42,7 +41,7 @@ DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
-    "5614 6835 8985 1641"
+    "УКАЖИ_НОМЕР_КАРТЫ"
 )
 
 PRICE_PER_STAR = 210
@@ -101,46 +100,38 @@ ADMIN_MESSAGE_TEXT = 16
 GIFTS = {
 
     1: {
-        "emoji": "🧸",
-        "emoji_id": "5397971251878732060",
-        "price": 4000,
-        "stars": 15,
-        "name": "Мишка",
-    },
-
-    2: {
-        "emoji": "💝",
-        "emoji_id": "5283228279988309088",
-        "price": 4000,
-        "stars": 15,
-        "name": "Сердце",
-    },
-
-    3: {
-        "emoji": "🌹",
-        "emoji_id": "5280947338821524402",
-        "price": 6000,
-        "stars": 25,
-        "name": "Роза",
-    },
-
-    4: {
         "emoji": "🎁",
         "emoji_id": "5280615440928758599",
-        "price": 6000,
-        "stars": 25,
+        "price": 4000,
+        "stars": 15,
         "name": "Подарок",
     },
 
-    5: {
+    2: {
+        "emoji": "💐",
+        "emoji_id": "5280774333243873175",
+        "price": 4000,
+        "stars": 15,
+        "name": "Букет",
+    },
+
+    3: {
         "emoji": "🚀",
         "emoji_id": "5283080528818360566",
-        "price": 10500,
-        "stars": 50,
+        "price": 6000,
+        "stars": 25,
         "name": "Ракета",
     },
 
-    6: {
+    4: {
+        "emoji": "🏆",
+        "emoji_id": "5280769763398671636",
+        "price": 6000,
+        "stars": 25,
+        "name": "Кубок",
+    },
+
+    5: {
         "emoji": "🎂",
         "emoji_id": "5280659198055572187",
         "price": 10500,
@@ -148,20 +139,28 @@ GIFTS = {
         "name": "Торт",
     },
 
-    7: {
-        "emoji": "💐",
-        "emoji_id": "5280774333243873175",
+    6: {
+        "emoji": "💎",
+        "emoji_id": "5280922999241859582",
         "price": 10500,
         "stars": 50,
-        "name": "Букет",
+        "name": "Алмаз",
     },
 
-    8: {
+    7: {
         "emoji": "🍾",
         "emoji_id": "5451905784734574339",
         "price": 10500,
         "stars": 50,
         "name": "Шампанское",
+    },
+
+    8: {
+        "emoji": "🏆",
+        "emoji_id": "5280769763398671636",
+        "price": 21000,
+        "stars": 100,
+        "name": "Кубок",
     },
 
     9: {
@@ -181,12 +180,21 @@ GIFTS = {
     },
 
     11: {
-        "emoji": "🏆",
-        "emoji_id": "5280769763398671636",
-        "price": 21000,
-        "stars": 100,
-        "name": "Кубок",
+        "emoji": "🍾",
+        "emoji_id": "5451905784734574339",
+        "price": 10500,
+        "stars": 50,
+        "name": "Шампанское",
     },
+
+    12: {
+        "emoji": "🧸",
+        "emoji_id": "5397971251878732060",
+        "price": 10500,
+        "stars": 50,
+        "name": "Мишка-футболист",
+    },
+
 }
 
 
@@ -262,11 +270,10 @@ TEXTS = {
 
         "refill_payment": (
             "💳 <b>Пополнение баланса</b>\n\n"
-            "💰 Сумма к переводу: <b>{amount:,} сум</b>\n\n"
+            "💰 Сумма: {amount:,} сум\n\n"
             "Переведите деньги на карту:\n"
             "<code>{card}</code>\n\n"
-            "⚠️ Важно: переведите именно указанную сумму.\n\n"
-            "После оплаты SMS от банка будет обработано автоматически."
+            "После оплаты отправьте фото чека."
         ),
 
         "receipt_sent": "⏳ Чек отправлен администратору.",
@@ -298,6 +305,7 @@ TEXTS = {
             "💰 Цена: {price:,} сум\n\n"
             "Подтвердить покупку?"
         ),
+
     },
 
     "uz": {
@@ -352,9 +360,7 @@ TEXTS = {
 
         "processing": "🔄 Buyurtma bajarilmoqda...",
 
-        "api_error": (
-            "❌ Buyurtmani bajarib bo'lmadi."
-        ),
+        "api_error": "❌ Buyurtmani bajarib bo'lmadi.",
 
         "cancelled": "❌ Bekor qilindi.",
 
@@ -365,11 +371,10 @@ TEXTS = {
 
         "refill_payment": (
             "💳 <b>Balansni to'ldirish</b>\n\n"
-            "💰 To'lov summasi: <b>{amount:,} so'm</b>\n\n"
+            "💰 Summa: {amount:,} so'm\n\n"
             "Kartaga pul o'tkazing:\n"
             "<code>{card}</code>\n\n"
-            "⚠️ Aynan ko'rsatilgan summani o'tkazing.\n\n"
-            "Bank SMS xabari kelgach balans avtomatik to'ldiriladi."
+            "To'lovdan keyin chek rasmini yuboring."
         ),
 
         "receipt_sent": "⏳ Chek administratorga yuborildi.",
@@ -400,7 +405,9 @@ TEXTS = {
             "💰 Narx: {price:,} so'm\n\n"
             "Xaridni tasdiqlaysizmi?"
         ),
+
     },
+
 }
 
 
@@ -409,7 +416,9 @@ TEXTS = {
 # =========================================================
 
 def init_db():
+
     conn = sqlite3.connect(DB_FILE)
+
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -423,19 +432,18 @@ def init_db():
         )
     """)
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pending_refills (
-            amount INTEGER PRIMARY KEY,
-            user_id INTEGER NOT NULL
-        )
-    """)
-
     conn.commit()
     conn.close()
 
 
-def get_user(user_id, username="", name=""):
+def get_user(
+    user_id,
+    username="",
+    name=""
+):
+
     conn = sqlite3.connect(DB_FILE)
+
     cursor = conn.cursor()
 
     cursor.execute(
@@ -478,9 +486,6 @@ def get_user(user_id, username="", name=""):
 
         old_username, old_name, balance, lang, is_banned = row
 
-        new_username = username or old_username or ""
-        new_name = name or old_name or ""
-
         cursor.execute(
             """
             UPDATE users
@@ -488,8 +493,8 @@ def get_user(user_id, username="", name=""):
             WHERE user_id = ?
             """,
             (
-                new_username,
-                new_name,
+                username or old_username or "",
+                name or old_name or "",
                 user_id,
             ),
         )
@@ -497,8 +502,8 @@ def get_user(user_id, username="", name=""):
         conn.commit()
 
         result = {
-            "username": new_username,
-            "name": new_name,
+            "username": username or old_username or "",
+            "name": name or old_name or "",
             "balance": balance,
             "lang": lang or "ru",
             "is_banned": bool(is_banned),
@@ -510,7 +515,9 @@ def get_user(user_id, username="", name=""):
 
 
 def set_language(user_id, lang):
+
     conn = sqlite3.connect(DB_FILE)
+
     cursor = conn.cursor()
 
     cursor.execute(
@@ -527,7 +534,9 @@ def set_language(user_id, lang):
 
 
 def change_balance(user_id, amount):
+
     conn = sqlite3.connect(DB_FILE)
+
     cursor = conn.cursor()
 
     cursor.execute(
@@ -544,7 +553,9 @@ def change_balance(user_id, amount):
 
 
 def set_ban(user_id, value):
+
     conn = sqlite3.connect(DB_FILE)
+
     cursor = conn.cursor()
 
     cursor.execute(
@@ -561,7 +572,9 @@ def set_ban(user_id, value):
 
 
 def get_users():
+
     conn = sqlite3.connect(DB_FILE)
+
     cursor = conn.cursor()
 
     cursor.execute(
@@ -580,6 +593,7 @@ def get_users():
 
 
 def tr(user_id, key, **kwargs):
+
     data = get_user(user_id)
 
     lang = data.get("lang", "ru")
@@ -654,6 +668,7 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, format, *args):
+
         return
 
 
@@ -825,7 +840,6 @@ async def main_buttons(update, context):
     )
 
 
-    # BACK
     if query.data == "back_main":
 
         await query.message.edit_text(
@@ -846,7 +860,6 @@ async def main_buttons(update, context):
         return
 
 
-    # LANGUAGE
     if query.data == "language_menu":
 
         keyboard = [
@@ -887,7 +900,6 @@ async def main_buttons(update, context):
         return
 
 
-    # SHOP
     if query.data == "main_shop":
 
         keyboard = [
@@ -942,7 +954,6 @@ async def main_buttons(update, context):
         return
 
 
-    # STARS
     if query.data == "shop_stars":
 
         keyboard = [
@@ -994,7 +1005,6 @@ async def main_buttons(update, context):
         return
 
 
-    # PREMIUM
     if query.data == "shop_premium":
 
         keyboard = [
@@ -1042,7 +1052,6 @@ async def main_buttons(update, context):
         return
 
 
-    # GIFTS
     if query.data == "shop_gifts":
 
         keyboard = []
@@ -1087,7 +1096,6 @@ async def main_buttons(update, context):
         return
 
 
-    # ACCOUNTS
     if query.data == "shop_accounts":
 
         keyboard = [
@@ -1142,7 +1150,6 @@ async def main_buttons(update, context):
         return
 
 
-    # ACCOUNT ORDER
     if query.data.startswith("account_"):
 
         countries = {
@@ -1261,7 +1268,7 @@ async def send_order_to_elder(
 
         }
 
-    elif product_type == "premium":
+    else:
 
         url = f"{ELDER_API_URL}/premium/buy"
 
@@ -1274,10 +1281,6 @@ async def send_order_to_elder(
             "client_order_id": order_id,
 
         }
-
-    else:
-
-        return False
 
     try:
 
@@ -1327,89 +1330,41 @@ async def send_order_to_elder(
 # =========================================================
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
-
 async def buy_start(update, context):
 
     query = update.callback_query
-
     await query.answer()
 
     context.user_data.clear()
 
     data = query.data
 
-
-    # Свои Stars
-    if data == "buy_stars":
-
-        context.user_data["product_type"] = "stars"
-
-        await query.message.edit_text(
-
-            "⭐ Введите количество Stars "
-            "(от 50 до 10000):"
-
-        )
-
-        return BUY_AMOUNT
-
-
-    # Готовое количество Stars
+    # Покупка Stars
     if data.startswith("buy_stars_"):
 
-        try:
-            amount = int(
-                data.split("_")[2]
-            )
-        except (ValueError, IndexError):
-
-            await query.message.edit_text(
-                "❌ Ошибка количества Stars."
-            )
-
-            return ConversationHandler.END
+        amount = int(data.split("_")[2])
 
         context.user_data["product_type"] = "stars"
-
         context.user_data["amount"] = amount
 
         await query.message.edit_text(
-
-            f"⭐ Вы выбрали {amount} Stars.\n\n"
-            "Введите @username Telegram:"
-
+            f"⭐ Вы выбрали {amount} Stars.\n\nВведите @username Telegram:"
         )
 
         return BUY_USERNAME
 
+    # Покупка Premium
 
-    # Premium
+
     if data.startswith("buy_premium_"):
 
-        try:
-            months = int(
-                data.split("_")[2]
-            )
-        except (ValueError, IndexError):
-
-            await query.message.edit_text(
-                "❌ Ошибка срока Premium."
-            )
-
-            return ConversationHandler.END
-
-        if months not in PREMIUM_PRICES:
-
-            await query.message.edit_text(
-                "❌ Такой срок Premium недоступен."
-            )
-
-            return ConversationHandler.END
+        months = int(
+            data.split("_")[2]
+        )
 
         context.user_data["product_type"] = "premium"
 
         context.user_data["amount"] = months
-
         context.user_data["months"] = months
 
         await query.message.edit_text(
@@ -1496,34 +1451,14 @@ async def buy_username(update, context):
 
         product = f"{amount} Stars"
 
-    elif product_type == "premium":
+    else:
 
         price = PREMIUM_PRICES.get(amount)
-
-        if price is None:
-
-            await update.message.reply_text(
-                "❌ Ошибка цены Premium."
-            )
-
-            context.user_data.clear()
-
-            return ConversationHandler.END
 
         product = (
             f"Telegram Premium на "
             f"{amount} мес."
         )
-
-    else:
-
-        await update.message.reply_text(
-            "❌ Ошибка заказа."
-        )
-
-        context.user_data.clear()
-
-        return ConversationHandler.END
 
     data = get_user(
         user.id,
@@ -1625,71 +1560,15 @@ async def buy_confirm(update, context):
 
         return ConversationHandler.END
 
-    product_type = context.user_data.get(
-        "product_type"
-    )
+    product_type = context.user_data["product_type"]
 
-    amount = context.user_data.get(
-        "amount"
-    )
+    amount = context.user_data["amount"]
 
-    username = context.user_data.get(
-        "username"
-    )
+    username = context.user_data["username"]
 
-    price = context.user_data.get(
-        "price"
-    )
+    price = context.user_data["price"]
 
-    product = context.user_data.get(
-        "product"
-    )
-
-    if not all([
-        product_type,
-        amount,
-        username,
-        price,
-        product,
-    ]):
-
-        context.user_data.clear()
-
-        await query.message.edit_text(
-            "❌ Данные заказа потеряны. "
-            "Начните покупку заново."
-        )
-
-        return ConversationHandler.END
-
-    # Повторная проверка баланса
-    data = get_user(
-        user.id,
-        user.username,
-        user.first_name,
-    )
-
-    if data["balance"] < price:
-
-        context.user_data.clear()
-
-        await query.message.edit_text(
-
-            tr(
-
-                user.id,
-
-                "not_enough",
-
-                price=price,
-
-                balance=data["balance"],
-
-            )
-
-        )
-
-        return ConversationHandler.END
+    product = context.user_data["product"]
 
     await query.message.edit_text(
 
@@ -1725,7 +1604,6 @@ async def buy_confirm(update, context):
 
         return ConversationHandler.END
 
-    # Списываем деньги только после успешного API
     change_balance(
         user.id,
         -price,
@@ -1814,9 +1692,9 @@ async def refill_amount(update, context):
 
         return REFILL_AMOUNT
 
-    base_amount = int(text)
+    amount = int(text)
 
-    if base_amount <= 0:
+    if amount <= 0:
 
         await update.message.reply_text(
             "❌ Введите корректную сумму."
@@ -1824,66 +1702,24 @@ async def refill_amount(update, context):
 
         return REFILL_AMOUNT
 
-    if base_amount > 100000000:
-
-        await update.message.reply_text(
-            "❌ Слишком большая сумма."
-        )
-
-        return REFILL_AMOUNT
-
-    conn = sqlite3.connect(DB_FILE)
-
-    cursor = conn.cursor()
-
-    # Создаём уникальную сумму
-    while True:
-
-        amount = base_amount + random.randint(1, 999)
-
-        cursor.execute(
-            """
-            SELECT 1
-            FROM pending_refills
-            WHERE amount = ?
-            """,
-            (amount,),
-        )
-
-        if cursor.fetchone() is None:
-            break
-
-    cursor.execute(
-        """
-        INSERT INTO pending_refills
-        (amount, user_id)
-        VALUES (?, ?)
-        """,
-        (
-            amount,
-            update.effective_user.id,
-        ),
-    )
-
-    conn.commit()
-    conn.close()
-
     context.user_data["refill_amount"] = amount
-
-    context.user_data["refill_user_id"] = (
-        update.effective_user.id
-    )
 
     await update.message.reply_text(
 
         tr(
+
             update.effective_user.id,
+
             "refill_payment",
+
             amount=amount,
+
             card=CARD_NUMBER,
+
         ),
 
         parse_mode="HTML",
+
     )
 
     return REFILL_CHECK
@@ -1891,216 +1727,163 @@ async def refill_amount(update, context):
 
 async def refill_check(update, context):
 
+    if not update.message.photo:
+
+        await update.message.reply_text(
+
+            tr(
+                update.effective_user.id,
+                "send_receipt",
+            )
+
+        )
+
+        return REFILL_CHECK
+
+    user = update.effective_user
+
+    amount = context.user_data.get(
+        "refill_amount",
+        0,
+    )
+
+    photo = update.message.photo[-1]
+
+    caption = (
+
+        "💳 <b>НОВОЕ ПОПОЛНЕНИЕ</b>\n\n"
+
+        f"👤 Пользователь: "
+        f"@{escape(user.username or 'нет username')}\n"
+
+        f"🆔 ID: <code>{user.id}</code>\n"
+
+        f"💰 Сумма: <b>{amount:,} сум</b>"
+
+    )
+
+    keyboard = InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+
+                "✅ Одобрить",
+
+                callback_data=(
+                    f"approve_refill_{user.id}_{amount}"
+                ),
+
+            ),
+
+            InlineKeyboardButton(
+
+                "❌ Отклонить",
+
+                callback_data=(
+                    f"reject_refill_{user.id}"
+                ),
+
+            ),
+
+        ]
+
+    ])
+
+    await context.bot.send_photo(
+
+        chat_id=ADMIN_ID,
+
+        photo=photo.file_id,
+
+        caption=caption,
+
+        parse_mode="HTML",
+
+        reply_markup=keyboard,
+
+    )
+
     await update.message.reply_text(
 
-        "⏳ Ожидайте поступления оплаты.\n\n"
-        "После получения банковского SMS "
-        "баланс пополнится автоматически."
-
-    )
-
-    return REFILL_CHECK
-
-
-# =========================================================
-# АВТОМАТИЧЕСКОЕ ПОПОЛНЕНИЕ ПО SMS
-# =========================================================
-
-async def process_bank_sms(update, context):
-
-    if not update.message:
-        return
-
-    if not update.message.text:
-        return
-
-    # Обрабатываем только пересланные сообщения
-    if not update.message.forward_origin:
-        return
-
-    sender = getattr(
-        update.message.forward_origin,
-        "sender_user",
-        None,
-    )
-
-    if not sender:
-        return
-
-    # SMS должно быть переслано администратором
-    if sender.id != ADMIN_ID:
-        return
-
-    text = update.message.text
-
-    logger.info(
-        "Получено пересланное сообщение от ADMIN: %s",
-        text,
-    )
-
-    # Проверяем формат SMS
-    if "From: 5800" not in text:
-        return
-
-    if "Miqdor:" not in text:
-        return
-
-    # Ищем сумму
-    match = re.search(
-        r"Miqdor:\s*([\d\s]+(?:\.\d+)?)\s*UZS",
-        text,
-        re.IGNORECASE,
-    )
-
-    if not match:
-        logger.warning(
-            "Не удалось найти сумму в банковском SMS."
-        )
-        return
-
-    try:
-
-        amount = int(
-            float(
-                match.group(1).replace(" ", "")
-            )
+        tr(
+            user.id,
+            "receipt_sent",
         )
 
-    except ValueError:
-
-        logger.warning(
-            "Ошибка преобразования суммы."
-        )
-
-        return
-
-    conn = sqlite3.connect(DB_FILE)
-
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT user_id
-        FROM pending_refills
-        WHERE amount = ?
-        """,
-        (amount,),
     )
 
-    row = cursor.fetchone()
+    context.user_data.clear()
 
-    if row is None:
+    return ConversationHandler.END
 
-        conn.close()
 
-        logger.info(
-            "Заявка на сумму %s не найдена.",
+async def payment_callback(update, context):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    if query.from_user.id != ADMIN_ID:
+        return
+
+    parts = query.data.split("_")
+
+    if parts[0] == "approve":
+
+        user_id = int(parts[2])
+
+        amount = int(parts[3])
+
+        change_balance(
+            user_id,
             amount,
         )
-
-        return
-
-    user_id = row[0]
-
-    # Проверяем, что пользователь существует
-    cursor.execute(
-        """
-        SELECT user_id
-        FROM users
-        WHERE user_id = ?
-        """,
-        (user_id,),
-    )
-
-    user_exists = cursor.fetchone()
-
-    if user_exists is None:
-
-        conn.close()
-
-        logger.warning(
-            "Пользователь %s не найден.",
-            user_id,
-        )
-
-        return
-
-    # Зачисляем деньги
-    cursor.execute(
-        """
-        UPDATE users
-        SET balance = balance + ?
-        WHERE user_id = ?
-        """,
-        (
-            amount,
-            user_id,
-        ),
-    )
-
-    # Удаляем обработанную заявку
-    cursor.execute(
-        """
-        DELETE FROM pending_refills
-        WHERE amount = ?
-        """,
-        (amount,),
-    )
-
-    conn.commit()
-    conn.close()
-
-    logger.info(
-        "Автопополнение выполнено: user=%s amount=%s",
-        user_id,
-        amount,
-    )
-
-    # Сообщение пользователю
-    try:
 
         await context.bot.send_message(
 
             user_id,
 
             (
-                "✅ <b>Баланс пополнен автоматически!</b>\n\n"
-                f"💰 Зачислено: <b>{amount:,} сум</b>"
+
+                "✅ <b>Баланс пополнен!</b>\n\n"
+
+                f"💰 Сумма: {amount:,} сум"
+
             ),
 
             parse_mode="HTML",
 
         )
 
-    except Exception as e:
+        await query.edit_message_caption(
 
-        logger.exception(
-            "Не удалось уведомить пользователя: %s",
-            e,
+            caption=query.message.caption
+            + "\n\n✅ ОДОБРЕНО",
+
+            parse_mode="HTML",
+
         )
 
-    # Сообщение админу
-    try:
+    else:
+
+        user_id = int(parts[2])
 
         await context.bot.send_message(
 
-            ADMIN_ID,
+            user_id,
 
-            (
-                "✅ <b>Автопополнение выполнено</b>\n\n"
-                f"👤 ID: <code>{user_id}</code>\n"
-                f"💰 Сумма: <b>{amount:,} сум</b>"
-            ),
-
-            parse_mode="HTML",
+            "❌ Пополнение отклонено.",
 
         )
 
-    except Exception as e:
+        await query.edit_message_caption(
 
-        logger.exception(
-            "Не удалось уведомить администратора: %s",
-            e,
+            caption=query.message.caption
+            + "\n\n❌ ОТКЛОНЕНО",
+
+            parse_mode="HTML",
+
         )
 
 
@@ -2114,27 +1897,9 @@ async def gift_start(update, context):
 
     await query.answer()
 
-    try:
-
-        gift_id = int(
-            query.data.split("_")[1]
-        )
-
-    except (ValueError, IndexError):
-
-        await query.message.edit_text(
-            "❌ Ошибка подарка."
-        )
-
-        return ConversationHandler.END
-
-    if gift_id not in GIFTS:
-
-        await query.message.edit_text(
-            "❌ Такой подарок не найден."
-        )
-
-        return ConversationHandler.END
+    gift_id = int(
+        query.data.split("_")[1]
+    )
 
     context.user_data.clear()
 
@@ -2145,8 +1910,11 @@ async def gift_start(update, context):
         [
 
             InlineKeyboardButton(
+
                 "👤 Отправить не анонимно",
+
                 callback_data="gift_anonymous_no",
+
             )
 
         ],
@@ -2154,8 +1922,11 @@ async def gift_start(update, context):
         [
 
             InlineKeyboardButton(
+
                 "🕵️ Отправить анонимно",
+
                 callback_data="gift_anonymous_yes",
+
             )
 
         ],
@@ -2163,8 +1934,11 @@ async def gift_start(update, context):
         [
 
             InlineKeyboardButton(
+
                 "❌ Отмена",
+
                 callback_data="cancel_gift",
+
             )
 
         ],
@@ -2198,7 +1972,9 @@ async def gift_send_type(update, context):
         return await cancel(update, context)
 
     context.user_data["anonymous"] = (
+
         query.data == "gift_anonymous_yes"
+
     )
 
     keyboard = [
@@ -2206,8 +1982,11 @@ async def gift_send_type(update, context):
         [
 
             InlineKeyboardButton(
+
                 "✍️ Добавить текст",
+
                 callback_data="gift_text_yes",
+
             )
 
         ],
@@ -2215,8 +1994,11 @@ async def gift_send_type(update, context):
         [
 
             InlineKeyboardButton(
+
                 "➡️ Без текста",
+
                 callback_data="gift_text_no",
+
             )
 
         ],
@@ -2224,8 +2006,11 @@ async def gift_send_type(update, context):
         [
 
             InlineKeyboardButton(
+
                 "❌ Отмена",
+
                 callback_data="cancel_gift",
+
             )
 
         ],
@@ -2284,18 +2069,9 @@ async def gift_text_choice(update, context):
 
 async def gift_text_input(update, context):
 
-    text = update.message.text.strip()
-
-    if len(text) > 500:
-
-        await update.message.reply_text(
-            "❌ Текст слишком длинный. "
-            "Максимум 500 символов."
-        )
-
-        return GIFT_TEXT
-
-    context.user_data["gift_text"] = text
+    context.user_data["gift_text"] = (
+        update.message.text.strip()
+    )
 
     await update.message.reply_text(
 
@@ -2316,45 +2092,29 @@ async def send_custom_emoji(
     emoji_id,
 ):
 
-    try:
+    await bot.send_message(
 
-        await bot.send_message(
+        chat_id=chat_id,
 
-            chat_id=chat_id,
+        text=emoji,
 
-            text=emoji,
+        entities=[
 
-            entities=[
+            MessageEntity(
 
-                MessageEntity(
+                type=MessageEntity.CUSTOM_EMOJI,
 
-                    type=MessageEntity.CUSTOM_EMOJI,
+                offset=0,
 
-                    offset=0,
+                length=2,
 
-                    length=len(emoji),
+                custom_emoji_id=emoji_id,
 
-                    custom_emoji_id=emoji_id,
+            )
 
-                )
+        ],
 
-            ],
-
-        )
-
-    except Exception as e:
-
-        logger.exception(
-            "Ошибка отправки custom emoji: %s",
-            e,
-        )
-
-        # Если custom emoji не отправился,
-        # отправляем обычный emoji
-        await bot.send_message(
-            chat_id=chat_id,
-            text=emoji,
-        )
+    )
 
 
 async def gift_username(update, context):
@@ -2381,19 +2141,7 @@ async def gift_username(update, context):
 
     user = update.effective_user
 
-    gift_id = context.user_data.get(
-        "gift_id"
-    )
-
-    if gift_id not in GIFTS:
-
-        await update.message.reply_text(
-            "❌ Ошибка подарка."
-        )
-
-        context.user_data.clear()
-
-        return ConversationHandler.END
+    gift_id = context.user_data["gift_id"]
 
     gift = GIFTS[gift_id]
 
@@ -2445,7 +2193,6 @@ async def gift_username(update, context):
 
     )
 
-    # Списываем баланс
     change_balance(
 
         user.id,
@@ -2466,7 +2213,6 @@ async def gift_username(update, context):
 
     )
 
-    # Отправляем emoji админу
     await send_custom_emoji(
 
         context.bot,
@@ -2479,7 +2225,6 @@ async def gift_username(update, context):
 
     )
 
-    # Информация админу
     await context.bot.send_message(
 
         ADMIN_ID,
@@ -2539,10 +2284,7 @@ async def cancel(update, context):
 
         query = update.callback_query
 
-        try:
-            await query.answer()
-        except Exception:
-            pass
+        await query.answer()
 
         await query.message.edit_text(
 
@@ -2553,7 +2295,7 @@ async def cancel(update, context):
 
         )
 
-    elif update.message:
+    else:
 
         await update.message.reply_text(
 
@@ -2675,7 +2417,7 @@ async def admin_callback(update, context):
     await query.answer()
 
     if not is_admin(query.from_user.id):
-        return ConversationHandler.END
+        return
 
     data = query.data
 
@@ -2683,7 +2425,9 @@ async def admin_callback(update, context):
     if data == "admin_add":
 
         await query.message.edit_text(
+
             "➕ Введите ID пользователя:"
+
         )
 
         return ADMIN_ADD_ID
@@ -2692,7 +2436,9 @@ async def admin_callback(update, context):
     if data == "admin_sub":
 
         await query.message.edit_text(
+
             "➖ Введите ID пользователя:"
+
         )
 
         return ADMIN_SUB_ID
@@ -2701,7 +2447,9 @@ async def admin_callback(update, context):
     if data == "admin_ban":
 
         await query.message.edit_text(
+
             "🔨 Введите ID пользователя для бана:"
+
         )
 
         return ADMIN_BAN_ID
@@ -2710,7 +2458,9 @@ async def admin_callback(update, context):
     if data == "admin_unban":
 
         await query.message.edit_text(
+
             "🔓 Введите ID пользователя для разбана:"
+
         )
 
         return ADMIN_UNBAN_ID
@@ -2719,7 +2469,9 @@ async def admin_callback(update, context):
     if data == "admin_message":
 
         await query.message.edit_text(
+
             "💬 Введите ID пользователя:"
+
         )
 
         return ADMIN_MESSAGE_ID
@@ -2815,10 +2567,7 @@ async def admin_callback(update, context):
 
         users = get_users()
 
-        total = sum(
-            row[3]
-            for row in users
-        )
+        total = sum(row[3] for row in users)
 
         await query.message.edit_text(
 
@@ -2860,15 +2609,11 @@ async def admin_callback(update, context):
         users = get_users()
 
         active = sum(
-            1
-            for row in users
-            if not row[5]
+            1 for row in users if not row[5]
         )
 
         banned = sum(
-            1
-            for row in users
-            if row[5]
+            1 for row in users if row[5]
         )
 
         await query.message.edit_text(
@@ -2921,8 +2666,6 @@ async def admin_callback(update, context):
         )
 
         return ConversationHandler.END
-
-    return ConversationHandler.END
 
 
 # =========================================================
@@ -2986,27 +2729,21 @@ async def admin_add_amount(update, context):
 
     change_balance(user_id, amount)
 
-    try:
+    await context.bot.send_message(
 
-        await context.bot.send_message(
+        user_id,
 
-            user_id,
+        (
 
-            (
+            "💰 <b>Баланс изменён администратором</b>\n\n"
 
-                "💰 <b>Баланс изменён администратором</b>\n\n"
+            f"➕ Добавлено: {amount:,} сум"
 
-                f"➕ Добавлено: {amount:,} сум"
+        ),
 
-            ),
+        parse_mode="HTML",
 
-            parse_mode="HTML",
-
-        )
-
-    except Exception as e:
-
-        logger.exception(e)
+    )
 
     await update.message.reply_text(
 
@@ -3092,31 +2829,25 @@ async def admin_sub_amount(update, context):
 
         )
 
-        return ADMIN_SUB_AMOUNT
+        return ConversationHandler.END
 
     change_balance(user_id, -amount)
 
-    try:
+    await context.bot.send_message(
 
-        await context.bot.send_message(
+        user_id,
 
-            user_id,
+        (
 
-            (
+            "💰 <b>Баланс изменён администратором</b>\n\n"
 
-                "💰 <b>Баланс изменён администратором</b>\n\n"
+            f"➖ Снято: {amount:,} сум"
 
-                f"➖ Снято: {amount:,} сум"
+        ),
 
-            ),
+        parse_mode="HTML",
 
-            parse_mode="HTML",
-
-        )
-
-    except Exception as e:
-
-        logger.exception(e)
+    )
 
     await update.message.reply_text(
 
@@ -3154,19 +2885,13 @@ async def admin_ban_id(update, context):
 
     set_ban(user_id, 1)
 
-    try:
+    await context.bot.send_message(
 
-        await context.bot.send_message(
+        user_id,
 
-            user_id,
+        "🔨 Вы были заблокированы администрацией.",
 
-            "🔨 Вы были заблокированы администрацией.",
-
-        )
-
-    except Exception as e:
-
-        logger.exception(e)
+    )
 
     await update.message.reply_text(
 
@@ -3201,19 +2926,13 @@ async def admin_unban_id(update, context):
 
     set_ban(user_id, 0)
 
-    try:
+    await context.bot.send_message(
 
-        await context.bot.send_message(
+        user_id,
 
-            user_id,
+        "🔓 Вы были разблокированы администрацией.",
 
-            "🔓 Вы были разблокированы администрацией.",
-
-        )
-
-    except Exception as e:
-
-        logger.exception(e)
+    )
 
     await update.message.reply_text(
 
@@ -3305,109 +3024,18 @@ async def admin_message_text(update, context):
 
 
 # =========================================================
-# ADMIN PAYMENT CALLBACK
-# =========================================================
-
-async def payment_callback(update, context):
-
-    query = update.callback_query
-
-    await query.answer()
-
-    if not is_admin(query.from_user.id):
-        return
-
-    data = query.data
-
-    if data.startswith("approve_refill_"):
-
-        try:
-
-            user_id = int(
-                data.split("_")[-1]
-            )
-
-        except (ValueError, IndexError):
-
-            await query.message.edit_text(
-                "❌ Неверный ID пользователя."
-            )
-
-            return
-
-        await query.message.edit_text(
-
-            f"✅ Пополнение пользователя "
-            f"<code>{user_id}</code> подтверждено.",
-
-            parse_mode="HTML",
-
-        )
-
-        return
-
-
-    if data.startswith("reject_refill_"):
-
-        try:
-
-            user_id = int(
-                data.split("_")[-1]
-            )
-
-        except (ValueError, IndexError):
-
-            await query.message.edit_text(
-                "❌ Неверный ID пользователя."
-            )
-
-            return
-
-        await query.message.edit_text(
-
-            f"❌ Пополнение пользователя "
-            f"<code>{user_id}</code> отклонено.",
-
-            parse_mode="HTML",
-
-        )
-
-        return
-
-
-# =========================================================
-# UNKNOWN CALLBACK
-# =========================================================
-
-async def unknown_callback(update, context):
-
-    query = update.callback_query
-
-    try:
-
-        await query.answer()
-
-    except Exception:
-
-        pass
-
-
-# =========================================================
 # MAIN
 # =========================================================
 
 def main():
 
-    # База данных
     init_db()
 
-    # Render Web Server
     threading.Thread(
         target=run_web,
         daemon=True,
     ).start()
 
-    # Telegram Application
     application = (
 
         Application.builder()
@@ -3421,13 +3049,13 @@ def main():
 
     # =====================================================
     # CONVERSATION HANDLER
+    # ВАЖНО: СТАВИМ ПЕРВЫМ
     # =====================================================
 
     conversation_handler = ConversationHandler(
 
         entry_points=[
 
-            # Пополнение
             CallbackQueryHandler(
 
                 refill_start,
@@ -3436,16 +3064,11 @@ def main():
 
             ),
 
-            # Stars / Premium
             CallbackQueryHandler(
-
                 buy_start,
-
-                pattern=r"^buy_(stars|premium)(?:_\d+)?$",
-
+                pattern=r"^buy_.*$",
             ),
 
-            # Подарки
             CallbackQueryHandler(
 
                 gift_start,
@@ -3454,7 +3077,6 @@ def main():
 
             ),
 
-            # Админ
             CallbackQueryHandler(
 
                 admin_callback,
@@ -3466,10 +3088,6 @@ def main():
         ],
 
         states={
-
-            # ---------------------------------------------
-            # REFILL
-            # ---------------------------------------------
 
             REFILL_AMOUNT: [
 
@@ -3487,18 +3105,21 @@ def main():
 
                 MessageHandler(
 
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.PHOTO,
+
+                    refill_check,
+
+                ),
+
+                MessageHandler(
+
+                    filters.ALL,
 
                     refill_check,
 
                 ),
 
             ],
-
-
-            # ---------------------------------------------
-            # BUY
-            # ---------------------------------------------
 
             BUY_AMOUNT: [
 
@@ -3536,11 +3157,6 @@ def main():
 
             ],
 
-
-            # ---------------------------------------------
-            # GIFTS
-            # ---------------------------------------------
-
             GIFT_SEND_TYPE: [
 
                 CallbackQueryHandler(
@@ -3550,7 +3166,9 @@ def main():
                     pattern=(
 
                         r"^(gift_anonymous_yes|"
+
                         r"gift_anonymous_no|"
+
                         r"cancel_gift)$"
 
                     ),
@@ -3568,7 +3186,9 @@ def main():
                     pattern=(
 
                         r"^(gift_text_yes|"
+
                         r"gift_text_no|"
+
                         r"cancel_gift)$"
 
                     ),
@@ -3597,11 +3217,6 @@ def main():
 
             ],
 
-
-            # ---------------------------------------------
-            # ADMIN ADD
-            # ---------------------------------------------
-
             ADMIN_ADD_ID: [
 
                 MessageHandler(
@@ -3625,11 +3240,6 @@ def main():
                 )
 
             ],
-
-
-            # ---------------------------------------------
-            # ADMIN SUB
-            # ---------------------------------------------
 
             ADMIN_SUB_ID: [
 
@@ -3655,11 +3265,6 @@ def main():
 
             ],
 
-
-            # ---------------------------------------------
-            # ADMIN BAN
-            # ---------------------------------------------
-
             ADMIN_BAN_ID: [
 
                 MessageHandler(
@@ -3672,11 +3277,6 @@ def main():
 
             ],
 
-
-            # ---------------------------------------------
-            # ADMIN UNBAN
-            # ---------------------------------------------
-
             ADMIN_UNBAN_ID: [
 
                 MessageHandler(
@@ -3688,11 +3288,6 @@ def main():
                 )
 
             ],
-
-
-            # ---------------------------------------------
-            # ADMIN MESSAGE
-            # ---------------------------------------------
 
             ADMIN_MESSAGE_ID: [
 
@@ -3741,31 +3336,7 @@ def main():
 
     )
 
-
-    # =====================================================
-    # SMS АВТОПОПОЛНЕНИЕ
-    # =====================================================
-
-    application.add_handler(
-
-        MessageHandler(
-
-            filters.TEXT & filters.FORWARDED,
-
-            process_bank_sms,
-
-        )
-
-    )
-
-
-    # =====================================================
-    # CONVERSATION
-    # =====================================================
-
-    application.add_handler(
-        conversation_handler
-    )
+    application.add_handler(conversation_handler)
 
 
     # =====================================================
@@ -3797,7 +3368,7 @@ def main():
 
 
     # =====================================================
-    # LANGUAGE
+    # ЯЗЫК
     # =====================================================
 
     application.add_handler(
@@ -3814,7 +3385,7 @@ def main():
 
 
     # =====================================================
-    # PROFILE
+    # ПРОФИЛЬ
     # =====================================================
 
     application.add_handler(
@@ -3831,7 +3402,7 @@ def main():
 
 
     # =====================================================
-    # PAYMENT CALLBACK
+    # ПОПОЛНЕНИЕ
     # =====================================================
 
     application.add_handler(
@@ -3848,7 +3419,7 @@ def main():
 
 
     # =====================================================
-    # ADMIN CALLBACK
+    # АДМИН
     # =====================================================
 
     application.add_handler(
@@ -3865,22 +3436,14 @@ def main():
 
 
     # =====================================================
-    # MAIN BUTTONS
+    # ГЛАВНЫЕ КНОПКИ
     # =====================================================
 
     application.add_handler(
-
         CallbackQueryHandler(
-
             main_buttons,
-
-            pattern=(
-                r"^(main_shop|shop_.*|account_.*|"
-                r"back_main|language_menu)$"
-            ),
-
+            pattern=r"^(main_shop|shop_.*|buy_.*|gift_.*|account_.*|back_main|language_menu)$",
         )
-
     )
 
 
@@ -3891,7 +3454,9 @@ def main():
     application.add_handler(
 
         CallbackQueryHandler(
-            unknown_callback
+
+            unknown_callback,
+
         )
 
     )
@@ -3900,13 +3465,22 @@ def main():
     logger.info("BOT STARTED")
 
     application.run_polling(
+
         drop_pending_updates=True
+
     )
 
 
-# =========================================================
-# ЗАПУСК
-# =========================================================
+async def unknown_callback(update, context):
+    query = update.callback_query
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
 
 if __name__ == "__main__":
+
     main()
+
