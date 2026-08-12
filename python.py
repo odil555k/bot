@@ -960,14 +960,14 @@ async def main_buttons(update, context):
 
             [
                 InlineKeyboardButton(
-                    "50 Stars — 10 500 сум",
+                    "50 Stars — 11 000 сум",
                     callback_data="buy_stars_50",
                 )
             ],
 
             [
                 InlineKeyboardButton(
-                    "100 Stars — 21 000 сум",
+                    "100 Stars — 22 000 сум",
                     callback_data="buy_stars_100",
                 )
             ],
