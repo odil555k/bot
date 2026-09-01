@@ -966,7 +966,7 @@ async def main_buttons(update, context):
             [
                 InlineKeyboardButton(
                     "✏️ Ввести количество",
-                    callback_data="buy_stars",
+                    callback_data="buy_custom_stars",
                 )
             ],
 
@@ -1331,7 +1331,7 @@ async def buy_start(update, context):
     data = query.data
 
     # Ввод своего количества Stars
-    if data == "buy_stars":
+    if data in ("buy_stars", "buy_custom_stars"):
 
         context.user_data["product_type"] = "stars"
 
@@ -3071,7 +3071,7 @@ def main():
 
             CallbackQueryHandler(
                 buy_start,
-                pattern=r"^buy_.*$",
+                pattern=r"^buy_(stars|custom_stars|premium)_.*$|^buy_(stars|custom_stars)$",
             ),
 
             CallbackQueryHandler(
