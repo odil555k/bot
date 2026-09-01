@@ -1330,6 +1330,20 @@ async def buy_start(update, context):
 
     data = query.data
 
+    # Ввод своего количества Stars
+    if data == "buy_stars":
+
+        context.user_data["product_type"] = "stars"
+
+        await query.message.edit_text(
+            tr(
+                query.from_user.id,
+                "enter_stars",
+            )
+        )
+
+        return BUY_AMOUNT
+
     # Покупка Stars
     if data.startswith("buy_stars_"):
 
@@ -3474,4 +3488,3 @@ async def unknown_callback(update, context):
 if __name__ == "__main__":
 
     main()
-
