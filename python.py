@@ -1,3 +1,4 @@
+```
 import os
 import re
 import uuid
@@ -104,49 +105,42 @@ GIFTS = {
         "emoji_id": "5397971251878732060",
         "price": 4000,
         "stars": 15,
-        "name": "Мишка",
+        "name": "Мишка-футболист",
     },
 
-    2: {"emoji": "💝",
-        "emoji_id": "5397971251878732060",
-        "price": 4000,
-        "stars": 15,
-        "name": "Сердечко",
-    },
-
-    3: {
+    2: {
         "emoji": "🎁",
         "emoji_id": "5280615440928758599",
-        "price": 6000,
-        "stars": 25,
+        "price": 4000,
+        "stars": 15,
         "name": "Подарок",
     },
 
-    4: {
+    3: {
         "emoji": "💐",
         "emoji_id": "5280774333243873175",
-        "price": 11000,
-        "stars": 50,
+        "price": 4000,
+        "stars": 15,
         "name": "Букет",
     },
 
-    5: {
+    4: {
         "emoji": "🚀",
         "emoji_id": "5283080528818360566",
-        "price": 11000,
-        "stars": 50,
+        "price": 6000,
+        "stars": 25,
         "name": "Ракета",
     },
 
-    6: {
+    5: {
         "emoji": "🏆",
         "emoji_id": "5280769763398671636",
-        "price": 22000,
-        "stars": 100,
+        "price": 6000,
+        "stars": 25,
         "name": "Кубок",
     },
 
-    7: {
+    6: {
         "emoji": "🎂",
         "emoji_id": "5280659198055572187",
         "price": 10500,
@@ -154,15 +148,15 @@ GIFTS = {
         "name": "Торт",
     },
 
-    8: {
+    7: {
         "emoji": "💎",
         "emoji_id": "5280922999241859582",
-        "price": 22000,
-        "stars": 100,
+        "price": 10500,
+        "stars": 50,
         "name": "Алмаз",
     },
 
-    9: {
+    8: {
         "emoji": "🍾",
         "emoji_id": "5451905784734574339",
         "price": 10500,
@@ -170,7 +164,7 @@ GIFTS = {
         "name": "Шампанское",
     },
 
-    10: {
+    9: {
         "emoji": "🏆",
         "emoji_id": "5280769763398671636",
         "price": 21000,
@@ -178,12 +172,28 @@ GIFTS = {
         "name": "Кубок",
     },
 
-    11: {
+    10: {
         "emoji": "💍",
         "emoji_id": "5280651583078556009",
         "price": 21000,
         "stars": 100,
         "name": "Кольцо",
+    },
+
+    11: {
+        "emoji": "💎",
+        "emoji_id": "5280922999241859582",
+        "price": 21000,
+        "stars": 100,
+        "name": "Алмаз",
+    },
+
+    12: {
+        "emoji": "🍾",
+        "emoji_id": "5451905784734574339",
+        "price": 10500,
+        "stars": 50,
+        "name": "Шампанское",
     },
 
 }
@@ -503,6 +513,27 @@ def get_user(
     conn.close()
 
     return result
+
+
+def find_user_by_username(username):
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT user_id, username, name
+        FROM users
+        WHERE LOWER(username) = LOWER(?)
+        LIMIT 1
+        """,
+        (username,),
+    )
+
+    row = cursor.fetchone()
+    conn.close()
+
+    return row
 
 
 def set_language(user_id, lang):
@@ -966,7 +997,7 @@ async def main_buttons(update, context):
             [
                 InlineKeyboardButton(
                     "✏️ Ввести количество",
-                    callback_data="buy_custom_stars",
+                    callback_data="buy_stars",
                 )
             ],
 
@@ -1331,7 +1362,7 @@ async def buy_start(update, context):
     data = query.data
 
     # Ввод своего количества Stars
-    if data in ("buy_stars", "buy_custom_stars"):
+    if data == "buy_stars":
 
         context.user_data["product_type"] = "stars"
 
@@ -1436,6 +1467,20 @@ async def buy_username(update, context):
 
         await update.message.reply_text(
             "❌ Введите корректный юзернейм."
+        )
+
+        return BUY_USERNAME
+
+    # Проверяем, существует ли такой пользователь среди тех,
+    # кто уже запускал/использовал нашего бота.
+    recipient = find_user_by_username(username)
+
+    if recipient is None:
+
+        await update.message.reply_text(
+            f"❌ Пользователь @{username} не найден.\n\n"
+            "Проверьте юзернейм и исправьте его.\n"
+            "Убедитесь, что юзернейм указан правильно и без ошибок."
         )
 
         return BUY_USERNAME
@@ -3071,7 +3116,7 @@ def main():
 
             CallbackQueryHandler(
                 buy_start,
-                pattern=r"^buy_(stars|custom_stars|premium)_.*$|^buy_(stars|custom_stars)$",
+                pattern=r"^buy_.*$",
             ),
 
             CallbackQueryHandler(
