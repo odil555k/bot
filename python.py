@@ -245,7 +245,7 @@ TEXTS = {
 
         "enter_username": (
             "✏️ Введите юзернейм получателя.\n\n"
-            "С символом @"
+            "С символом @ или без него."
         ),
 
         "not_enough": (
@@ -349,7 +349,7 @@ TEXTS = {
 
         "enter_username": (
             "✏️ Qabul qiluvchining username'ini kiriting.\n\n"
-            "@ belgisiz"
+            "@ belgisi bilan yoki usiz."
         ),
 
         "not_enough": (
@@ -1351,6 +1351,7 @@ async def send_order_to_elder(
 # =========================================================
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
+
 async def buy_start(update, context):
 
     query = update.callback_query
@@ -1383,13 +1384,17 @@ async def buy_start(update, context):
         context.user_data["amount"] = amount
 
         await query.message.edit_text(
-            f"⭐ Вы выбрали {amount} Stars.\n\nВведите @username Telegram:"
+
+            tr(
+                query.from_user.id,
+                "enter_username",
+            )
+
         )
 
         return BUY_USERNAME
 
     # Покупка Premium
-
 
     if data.startswith("buy_premium_"):
 
@@ -1455,9 +1460,34 @@ async def buy_amount(update, context):
 
 async def buy_username(update, context):
 
+    # =====================================================
+    # ИСПРАВЛЕНИЕ:
+    # БОЛЬШЕ НЕ ИЩЕМ ПОЛЬЗОВАТЕЛЯ В БАЗЕ БОТА
+    # =====================================================
+
     username = update.message.text.strip()
 
-    username = username.replace("@", "")
+    # Убираем @ в начале
+    username = username.lstrip("@").strip()
+
+    # Убираем пробелы внутри
+    if " " in username:
+
+        await update.message.reply_text(
+
+            "❌ Неверный username.\n\n"
+            "Username не должен содержать пробелы.\n"
+            "Пример: @username\n\n"
+            "✏️ Введите другой username:"
+
+        )
+
+        return BUY_USERNAME
+
+
+    # =====================================================
+    # ПРОВЕРКА ФОРМАТА TELEGRAM USERNAME
+    # =====================================================
 
     if not re.fullmatch(
         r"[A-Za-z0-9_]{5,32}",
@@ -1465,24 +1495,26 @@ async def buy_username(update, context):
     ):
 
         await update.message.reply_text(
-            "❌ Введите корректный юзернейм."
+
+            "❌ Неверный username.\n\n"
+            "Username должен содержать только "
+            "латинские буквы, цифры и символ _.\n\n"
+            "Пример: @username\n\n"
+            "✏️ Введите другой username:"
+
         )
 
         return BUY_USERNAME
 
-    # Проверяем, существует ли такой пользователь среди тех,
-    # кто уже запускал/использовал нашего бота.
-    recipient = find_user_by_username(username)
 
-    if recipient is None:
-
-        await update.message.reply_text(
-            f"❌ Пользователь @{username} не найден.\n\n"
-            "Проверьте юзернейм и исправьте его.\n"
-            "Убедитесь, что юзернейм указан правильно и без ошибок."
-        )
-
-        return BUY_USERNAME
+    # =====================================================
+    # ВАЖНО:
+    # НЕ ПРОВЕРЯЕМ find_user_by_username()
+    #
+    # Теперь пользователь может быть любым Telegram
+    # пользователем, даже если он никогда не запускал
+    # нашего бота.
+    # =====================================================
 
     user = update.effective_user
 
@@ -1504,16 +1536,28 @@ async def buy_username(update, context):
 
         price = PREMIUM_PRICES.get(amount)
 
+        if price is None:
+
+            await update.message.reply_text(
+                "❌ Ошибка стоимости Premium."
+            )
+
+            context.user_data.clear()
+
+            return ConversationHandler.END
+
         product = (
             f"Telegram Premium на "
             f"{amount} мес."
         )
+
 
     data = get_user(
         user.id,
         user.username,
         user.first_name,
     )
+
 
     if data["balance"] < price:
 
@@ -1537,11 +1581,13 @@ async def buy_username(update, context):
 
         return ConversationHandler.END
 
+
     context.user_data["username"] = username
 
     context.user_data["price"] = price
 
     context.user_data["product"] = product
+
 
     keyboard = [
 
@@ -1560,6 +1606,7 @@ async def buy_username(update, context):
         ]
 
     ]
+
 
     await update.message.reply_text(
 
@@ -3521,11 +3568,15 @@ def main():
 
 
 async def unknown_callback(update, context):
+
     query = update.callback_query
 
     try:
+
         await query.answer()
+
     except Exception:
+
         pass
 
 
