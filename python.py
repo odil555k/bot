@@ -41,12 +41,12 @@ ELDER_API_URL = "https://elder.uz"
 
 DB_FILE = "bot_database.db"
 
-CARD_NUMBER = os.environ.get("CARD_NUMBER", "УКАЖИ_НОМЕР_КАРТЫ")
+CARD_NUMBER = os.environ.get("CARD_NUMBER", "5614 6835 8985 1641")
 
 # SMS2 Forwarder отправляет банковское SMS напрямую этому боту.
 # SMS_GROUP_ID больше НЕ используется.
 
-PRICE_PER_STAR = 210
+PRICE_PER_STAR = 220
 
 PREMIUM_PRICES = {
     3: 165000,
@@ -1234,13 +1234,13 @@ async def main_callback(
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
-                        "50 Stars — 10 500 сум",
+                        "50 Stars — 11 000 сум",
                         callback_data="buy_stars_50",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        "100 Stars — 21 000 сум",
+                        "100 Stars — 22 000 сум",
                         callback_data="buy_stars_100",
                     )
                 ],
