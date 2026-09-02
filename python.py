@@ -88,11 +88,11 @@ ADMIN_MESSAGE = 11
 
 GIFTS = {
     1: {
-        "emoji": "🎁",
-        "emoji_id": "5280615440928758599",
+        "emoji": "🧸",
+        "emoji_id": "5397971251878732060",
         "price": 4000,
         "stars": 15,
-        "name": "Подарок",
+        "name": "Мишка",
     },
     2: {
         "emoji": "💐",
@@ -165,11 +165,11 @@ GIFTS = {
         "name": "Шампанское",
     },
     12: {
-        "emoji": "🧸",
-        "emoji_id": "5397971251878732060",
-        "price": 10500,
-        "stars": 50,
-        "name": "Мишка-футболист",
+        "emoji": "🎁",
+        "emoji_id": "5280615440928758599",
+        "price": 4000,
+        "stars": 15,
+        "name": "Подарок",
     },
 }
 
@@ -1219,6 +1219,36 @@ async def buy_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
 
+    # Успешный ответ Elder API.
+    change_balance(user.id, -price)
+
+    await query.message.edit_text(
+        "✅ <b>Заказ успешно выполнен!</b>\n\n"
+        f"📦 Товар: <b>{escape(product)}</b>\n"
+        f"👤 Получатель: @{escape(username)}\n"
+        f"💰 Списано: <b>{price:,} сум</b>",
+        parse_mode="HTML",
+    )
+
+    try:
+        await context.bot.send_message(
+            ADMIN_ID,
+            (
+                "✅ <b>НОВЫЙ УСПЕШНЫЙ ЗАКАЗ</b>\n\n"
+                f"📦 Товар: <b>{escape(product)}</b>\n"
+                f"👤 Получатель: @{escape(username)}\n"
+                f"👤 Заказал: @{escape(user.username or 'нет username')}\n"
+                f"🆔 ID: <code>{user.id}</code>\n"
+                f"💰 Сумма: <b>{price:,} сум</b>"
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.exception("ADMIN ORDER NOTIFICATION ERROR: %s", e)
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
 
 # =========================================================
 # ПОПОЛНЕНИЕ
@@ -2193,3 +2223,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
