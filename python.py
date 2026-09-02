@@ -556,56 +556,48 @@ def create_auto_refill(user_id, requested_amount):
 # =========================================================
 
 def extract_sms_amounts(text):
-    """Извлекает только сумму после Miqdor:."""
+    """Извлекает сумму из текста банковского SMS (поддерживает дробные части вроде .00 и разные варианты написания)."""
 
     if not text:
         return []
 
-    match = re.search(
-        r"Miqdor\s*:\s*([0-9][0-9\s\u00a0.,]*)\s*UZS\b",
+    # Ищем ключевое слово Miqdor с возможными разделителями
+    matches = re.findall(
+        r"Miqdor\s*[:\-]?\s*([0-9][0-9\s\u00a0.,]*)\s*(?:UZS|сум|so'm)?\b",
         text,
         flags=re.IGNORECASE,
     )
 
-    if not match:
-        return []
+    if not matches:
+        # Резервный поиск любого числа с суффиксом UZS/сум
+        matches = re.findall(
+            r"\b([0-9][0-9\s\u00a0.,]*)\s*(?:UZS|сум|so'm)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
 
-    value = match.group(1)
+    amounts = []
+    for value in matches:
+        value = value.replace("\u00a0", " ")
+        value = re.sub(r"\s+", "", value)
 
-    value = value.replace("\u00a0", " ")
-    value = re.sub(r"\s+", "", value)
-
-    if re.fullmatch(r"\d+[.,]\d{1,2}", value):
-        value = re.split(r"[.,]", value)[0]
-
-    elif "." in value:
-        left, right = value.rsplit(".", 1)
-
-        if len(right) <= 2:
-            value = left
+        # Корректная обработка точек и запятых (например, 1090.00 -> 1090)
+        if re.search(r"[.,]\d{1,2}$", value):
+            value = re.split(r"[.,]", value)[0]
         else:
-            value = value.replace(".", "")
+            value = value.replace(".", "").replace(",", "")
 
-    elif "," in value:
-        left, right = value.rsplit(",", 1)
+        digits = re.sub(r"[^0-9]", "", value)
+        if digits:
+            amount = int(digits)
+            if amount > 0:
+                amounts.append(amount)
 
-        if len(right) <= 2:
-            value = left
-        else:
-            value = value.replace(",", "")
-
-    digits = re.sub(r"[^0-9]", "", value)
-
-    if not digits:
-        return []
-
-    amount = int(digits)
-
-    return [amount] if amount > 0 else []
+    return amounts
 
 
 def sms_has_bank_format(text):
-    """Проверяет формат банковского SMS от 5800."""
+    """Проверяет, что это банковское SMS (учитывает особенности пересылки через SMS 2 Forwarder)."""
 
     if not text:
         return False
@@ -618,22 +610,23 @@ def sms_has_bank_format(text):
 
     lower = normalized.lower()
 
-    has_sender = bool(
-        re.search(
-            r"(?m)^\s*From\s*:\s*5800\s*$",
-            normalized,
-            re.IGNORECASE,
-        )
-    )
+    # Проверяем наличие номера банка (5800) в любом месте текста/шапки
+    has_sender = "5800" in lower
 
+    # Проверяем признаки перевода или поступления средств
     has_transfer = (
         "kartaga o'tkazma" in lower
         or "kartaga o‘tkazma" in lower
+        or "o'tkazma" in lower
+        or "o‘tkazma" in lower
+        or "payme" in lower
+        or "click" in lower
     )
 
+    # Проверяем наличие поля с суммой (Miqdor)
     has_amount = bool(
         re.search(
-            r"Miqdor\s*:\s*[0-9][0-9\s\u00a0.,]*\s*UZS\b",
+            r"Miqdor\s*[:\-]?\s*[0-9]",
             normalized,
             re.IGNORECASE,
         )
@@ -641,8 +634,7 @@ def sms_has_bank_format(text):
 
     return (
         has_sender
-        and has_transfer
-        and has_amount
+        and (has_transfer or has_amount)
     )
 
 
