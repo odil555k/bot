@@ -4,6 +4,8 @@ import uuid
 import sqlite3
 import logging
 import threading
+import random
+import hashlib
 from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -40,6 +42,25 @@ ELDER_API_URL = "https://elder.uz"
 DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get("CARD_NUMBER", "УКАЖИ_НОМЕР_КАРТЫ")
+
+# ID закрытой Telegram-группы, куда SMS2 Forwarder отправляет SMS.
+# Пример: -1001234567890
+SMS_GROUP_ID = int(os.environ.get("SMS_GROUP_ID", "0"))
+
+# Необязательно: Telegram ID пользователя/бота, который отправляет SMS в группу.
+# Если оставить 0, бот принимает сообщения от любого отправителя в SMS_GROUP_ID.
+SMS_FORWARDER_USER_ID = int(os.environ.get("SMS_FORWARDER_USER_ID", "0"))
+
+# Слова/фразы, которые должны присутствовать в банковском SMS.
+# Лучше указать характерные именно для твоего банка слова.
+SMS_KEYWORDS = [
+    x.strip().lower()
+    for x in os.environ.get(
+        "SMS_KEYWORDS",
+        "поступил,зачисление,зачислено,пополнение,получено"
+    ).split(",")
+    if x.strip()
+]
 
 PRICE_PER_STAR = 210
 
@@ -228,10 +249,13 @@ TEXTS = {
         ),
         "refill_payment": (
             "💳 <b>Пополнение баланса</b>\n\n"
-            "💰 Сумма: {amount:,} сум\n\n"
+            "💰 На баланс будет зачислено: <b>{amount:,} сум</b>\n"
+            "💳 Перевести нужно ровно: <b>{payment_amount:,} сум</b>\n\n"
             "Переведите деньги на карту:\n"
             "<code>{card}</code>\n\n"
-            "После оплаты отправьте фото чека."
+            "📱 После перевода банковское SMS автоматически попадёт в систему.\n"
+            "🤖 Бот проверит SMS и сам зачислит <b>{amount:,} сум</b>.\n\n"
+            "⚠️ Переводите именно указанную сумму. Чек отправлять не нужно."
         ),
         "receipt_sent": "⏳ Чек отправлен администратору.",
         "send_receipt": "❌ Отправьте фото чека.",
@@ -299,10 +323,13 @@ TEXTS = {
         ),
         "refill_payment": (
             "💳 <b>Balansni to'ldirish</b>\n\n"
-            "💰 Summa: {amount:,} so'm\n\n"
+            "💰 Balansga tushadi: <b>{amount:,} so'm</b>\n"
+            "💳 Aynan shuni o'tkazing: <b>{payment_amount:,} so'm</b>\n\n"
             "Kartaga pul o'tkazing:\n"
             "<code>{card}</code>\n\n"
-            "To'lovdan keyin chek rasmini yuboring."
+            "📱 Bank SMS xabari avtomatik tekshiriladi.\n"
+            "🤖 Bot <b>{amount:,} so'm</b>ni avtomatik qo'shadi.\n\n"
+            "⚠️ Aynan ko'rsatilgan summani o'tkazing. Chek kerak emas."
         ),
         "receipt_sent": "⏳ Chek administratorga yuborildi.",
         "send_receipt": "❌ Chek rasmini yuboring.",
@@ -344,6 +371,27 @@ def init_db():
             balance INTEGER DEFAULT 0,
             lang TEXT DEFAULT 'ru',
             is_banned INTEGER DEFAULT 0
+        )
+    """)
+
+    # Ожидаемые автоматические пополнения.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auto_refills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            requested_amount INTEGER NOT NULL,
+            payment_amount INTEGER NOT NULL UNIQUE,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            paid_at TEXT
+        )
+    """)
+
+    # Уже обработанные SMS, чтобы одно SMS нельзя было зачислить дважды.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS processed_sms (
+            sms_hash TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL
         )
     """)
 
@@ -476,6 +524,236 @@ def get_users():
     conn.close()
 
     return rows
+
+
+def create_auto_refill(user_id, requested_amount):
+    """Создаёт один ожидающий платёж с уникальной контрольной суммой."""
+    conn = db()
+    cursor = conn.cursor()
+
+    # У пользователя одновременно может быть только один активный платёж.
+    cursor.execute(
+        "UPDATE auto_refills SET status = 'cancelled' "
+        "WHERE user_id = ? AND status = 'pending'",
+        (user_id,),
+    )
+
+    # Например, 4000 -> 4126. Контрольная добавка: 100..999.
+    for _ in range(100):
+        suffix = random.SystemRandom().randint(100, 999)
+        payment_amount = requested_amount + suffix
+
+        cursor.execute(
+            "SELECT 1 FROM auto_refills WHERE payment_amount = ? LIMIT 1",
+            (payment_amount,),
+        )
+        if cursor.fetchone() is not None:
+            continue
+
+        cursor.execute(
+            """
+            INSERT INTO auto_refills
+            (user_id, requested_amount, payment_amount, status, created_at)
+            VALUES (?, ?, ?, 'pending', datetime('now'))
+            """,
+            (user_id, requested_amount, payment_amount),
+        )
+        conn.commit()
+        conn.close()
+        return payment_amount
+
+    conn.close()
+    raise RuntimeError("Не удалось создать уникальную сумму пополнения")
+
+
+def extract_sms_amounts(text):
+    """Возвращает суммы из SMS, поддерживая 4 126 / 4,126 / 4126."""
+    if not text:
+        return []
+
+    normalized = text.replace("\u00a0", " ")
+    matches = re.findall(r"(?<!\d)(\d{1,3}(?:[ \u2009\u202f,]\d{3})+|\d{4,})(?!\d)", normalized)
+    amounts = []
+
+    for value in matches:
+        digits = re.sub(r"[^0-9]", "", value)
+        if not digits:
+            continue
+        amount = int(digits)
+        if amount >= 1000:
+            amounts.append(amount)
+
+    return amounts
+
+
+def sms_contains_keywords(text):
+    lower = (text or "").lower()
+    return any(keyword in lower for keyword in SMS_KEYWORDS)
+
+
+def process_sms_text(text, telegram_sender_id=0):
+    """Проверяет SMS и атомарно зачисляет подходящий ожидаемый платёж.
+
+    Возвращает словарь результата. Денежная сумма из SMS сама по себе
+    никогда не зачисляется: зачисляется только requested_amount из БД.
+    """
+    if not text or len(text) > 4000:
+        return {"ok": False, "reason": "bad_text"}
+
+    if SMS_GROUP_ID == 0:
+        return {"ok": False, "reason": "sms_group_not_configured"}
+
+    if SMS_FORWARDER_USER_ID and telegram_sender_id != SMS_FORWARDER_USER_ID:
+        return {"ok": False, "reason": "wrong_forwarder"}
+
+    if not sms_contains_keywords(text):
+        return {"ok": False, "reason": "keywords_not_found"}
+
+    amounts = extract_sms_amounts(text)
+    if not amounts:
+        return {"ok": False, "reason": "amount_not_found"}
+
+    sms_hash = hashlib.sha256(
+        text.strip().encode("utf-8")
+    ).hexdigest()
+
+    conn = db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "SELECT 1 FROM processed_sms WHERE sms_hash = ? LIMIT 1",
+            (sms_hash,),
+        )
+        if cursor.fetchone() is not None:
+            conn.close()
+            return {"ok": False, "reason": "duplicate"}
+
+        placeholders = ",".join("?" for _ in amounts)
+        cursor.execute(
+            f"""
+            SELECT id, user_id, requested_amount, payment_amount
+            FROM auto_refills
+            WHERE status = 'pending'
+              AND payment_amount IN ({placeholders})
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            amounts,
+        )
+        row = cursor.fetchone()
+
+        if row is None:
+            cursor.execute(
+                "INSERT OR IGNORE INTO processed_sms (sms_hash, created_at) "
+                "VALUES (?, datetime('now'))",
+                (sms_hash,),
+            )
+            conn.commit()
+            conn.close()
+            return {"ok": False, "reason": "payment_not_found", "amounts": amounts}
+
+        refill_id, user_id, requested_amount, payment_amount = row
+
+        cursor.execute(
+            "UPDATE auto_refills SET status = 'paid', paid_at = datetime('now') "
+            "WHERE id = ? AND status = 'pending'",
+            (refill_id,),
+        )
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            return {"ok": False, "reason": "already_processed"}
+
+        cursor.execute(
+            "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+            (requested_amount, user_id),
+        )
+
+        if cursor.rowcount != 1:
+            conn.rollback()
+            conn.close()
+            return {"ok": False, "reason": "user_not_found"}
+
+        cursor.execute(
+            "INSERT INTO processed_sms (sms_hash, created_at) VALUES (?, datetime('now'))",
+            (sms_hash,),
+        )
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "ok": True,
+            "user_id": user_id,
+            "requested_amount": requested_amount,
+            "payment_amount": payment_amount,
+        }
+
+    except Exception:
+        conn.rollback()
+        conn.close()
+        logger.exception("SMS PROCESSING ERROR")
+        return {"ok": False, "reason": "database_error"}
+
+
+async def sms_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получает SMS прямо из Telegram-группы от SMS2 Forwarder."""
+    message = update.effective_message
+    if not message or not message.chat:
+        return
+
+    if SMS_GROUP_ID == 0 or message.chat.id != SMS_GROUP_ID:
+        return
+
+    text = message.text or message.caption or ""
+    sender_id = message.from_user.id if message.from_user else 0
+
+    result = process_sms_text(text, sender_id)
+
+    if not result.get("ok"):
+        if result.get("reason") not in {
+            "keywords_not_found",
+            "amount_not_found",
+            "payment_not_found",
+            "duplicate",
+        }:
+            logger.info("SMS ignored: %s", result)
+        return
+
+    user_id = result["user_id"]
+    credited = result["requested_amount"]
+    received = result["payment_amount"]
+
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                "✅ <b>Баланс пополнен автоматически!</b>\n\n"
+                f"💰 Зачислено: <b>{credited:,} сум</b>\n"
+                f"💳 Получено: <b>{received:,} сум</b>\n\n"
+                "Оплата подтверждена по банковскому SMS."
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.exception("AUTO REFILL USER NOTIFICATION ERROR: %s", e)
+
+    if ADMIN_ID:
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=(
+                    "🤖 <b>АВТОПОПОЛНЕНИЕ</b>\n\n"
+                    f"🆔 Пользователь: <code>{user_id}</code>\n"
+                    f"💰 Зачислено: <b>{credited:,} сум</b>\n"
+                    f"💳 SMS: <b>{received:,} сум</b>"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.exception("AUTO REFILL ADMIN NOTIFICATION ERROR: %s", e)
 
 
 def tr(user_id, key, **kwargs):
@@ -1284,63 +1562,33 @@ async def refill_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return REFILL_AMOUNT
 
-    context.user_data["refill_amount"] = amount
+    if SMS_GROUP_ID == 0:
+        await update.message.reply_text(
+            "❌ Автопополнение пока не настроено администратором."
+        )
+        return ConversationHandler.END
+
+    try:
+        payment_amount = create_auto_refill(
+            update.effective_user.id,
+            amount,
+        )
+    except Exception:
+        logger.exception("AUTO REFILL CREATE ERROR")
+        await update.message.reply_text(
+            "❌ Не удалось создать платёж. Попробуйте ещё раз."
+        )
+        return ConversationHandler.END
 
     await update.message.reply_text(
         tr(
             update.effective_user.id,
             "refill_payment",
             amount=amount,
+            payment_amount=payment_amount,
             card=CARD_NUMBER,
         ),
         parse_mode="HTML",
-    )
-
-    return REFILL_CHECK
-
-
-async def refill_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.photo:
-        await update.message.reply_text(
-            tr(update.effective_user.id, "send_receipt")
-        )
-        return REFILL_CHECK
-
-    user = update.effective_user
-    amount = context.user_data.get("refill_amount", 0)
-    photo = update.message.photo[-1]
-
-    caption = (
-        "💳 <b>НОВОЕ ПОПОЛНЕНИЕ</b>\n\n"
-        f"👤 Пользователь: "
-        f"@{escape(user.username or 'нет username')}\n"
-        f"🆔 ID: <code>{user.id}</code>\n"
-        f"💰 Сумма: <b>{amount:,} сум</b>"
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "✅ Одобрить",
-                callback_data=f"approve_refill_{user.id}_{amount}",
-            ),
-            InlineKeyboardButton(
-                "❌ Отклонить",
-                callback_data=f"reject_refill_{user.id}",
-            ),
-        ]
-    ])
-
-    await context.bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=photo.file_id,
-        caption=caption,
-        parse_mode="HTML",
-        reply_markup=keyboard,
-    )
-
-    await update.message.reply_text(
-        tr(user.id, "receipt_sent")
     )
 
     context.user_data.clear()
@@ -2115,6 +2363,16 @@ def main():
 
     application.add_handler(admin_conversation)
 
+    # SMS2 Forwarder -> закрытая Telegram-группа -> этот обработчик.
+    # Он ставится до магазина, чтобы SMS из группы не попадали в другие диалоги.
+    if SMS_GROUP_ID:
+        application.add_handler(
+            MessageHandler(
+                filters.Chat(chat_id=SMS_GROUP_ID),
+                sms_group_message,
+            )
+        )
+
     # REFILL / BUY / GIFTS
     shop_conversation = ConversationHandler(
         entry_points=[
@@ -2137,16 +2395,6 @@ def main():
                     filters.TEXT & ~filters.COMMAND,
                     refill_amount,
                 )
-            ],
-            REFILL_CHECK: [
-                MessageHandler(
-                    filters.PHOTO,
-                    refill_check,
-                ),
-                MessageHandler(
-                    filters.ALL,
-                    refill_check,
-                ),
             ],
             BUY_AMOUNT: [
                 MessageHandler(
