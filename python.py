@@ -43,24 +43,13 @@ DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get("CARD_NUMBER", "УКАЖИ_НОМЕР_КАРТЫ")
 
-# ID закрытой Telegram-группы, куда SMS2 Forwarder отправляет SMS.
-# Пример: -1001234567890
-SMS_GROUP_ID = int(os.environ.get("SMS_GROUP_ID", "0"))
+# Обязательное кодовое слово. SMS без него не зачисляется.
+# Например: SMS_CODEWORD=STARPAY
+SMS_CODEWORD = os.environ.get("SMS_CODEWORD", "STARPAY").strip()
 
-# Необязательно: Telegram ID пользователя/бота, который отправляет SMS в группу.
-# Если оставить 0, бот принимает сообщения от любого отправителя в SMS_GROUP_ID.
-SMS_FORWARDER_USER_ID = int(os.environ.get("SMS_FORWARDER_USER_ID", "0"))
-
-# Слова/фразы, которые должны присутствовать в банковском SMS.
-# Лучше указать характерные именно для твоего банка слова.
-SMS_KEYWORDS = [
-    x.strip().lower()
-    for x in os.environ.get(
-        "SMS_KEYWORDS",
-        "поступил,зачисление,зачислено,пополнение,получено"
-    ).split(",")
-    if x.strip()
-]
+# В банковском SMS первой строкой должен быть именно этот отправитель.
+# Например: From: 5800
+SMS_BANK_SENDER = os.environ.get("SMS_BANK_SENDER", "From: 5800").strip()
 
 PRICE_PER_STAR = 210
 
@@ -567,14 +556,23 @@ def create_auto_refill(user_id, requested_amount):
 
 
 def extract_sms_amounts(text):
-    """Возвращает суммы из SMS, поддерживая 4 126 / 4,126 / 4126."""
+    """Возвращает денежные суммы из SMS.
+
+    Поддерживает варианты 4 180 / 4,180 / 4180.
+    Номер отправителя 5800 тоже попадёт в список, но он не совпадёт
+    с ожидаемым платежом, поэтому для зачисления используется только
+    payment_amount, который ранее был сохранён для конкретного пользователя.
+    """
     if not text:
         return []
 
     normalized = text.replace("\u00a0", " ")
-    matches = re.findall(r"(?<!\d)(\d{1,3}(?:[ \u2009\u202f,]\d{3})+|\d{4,})(?!\d)", normalized)
-    amounts = []
+    matches = re.findall(
+        r"(?<!\d)(\d{1,3}(?:[ \u2009\u202f,]\d{3})+|\d{4,})(?!\d)",
+        normalized,
+    )
 
+    amounts = []
     for value in matches:
         digits = re.sub(r"[^0-9]", "", value)
         if not digits:
@@ -586,36 +584,56 @@ def extract_sms_amounts(text):
     return amounts
 
 
-def sms_contains_keywords(text):
-    lower = (text or "").lower()
-    return any(keyword in lower for keyword in SMS_KEYWORDS)
+def sms_contains_codeword(text):
+    """Проверяет обязательное кодовое слово отдельным токеном."""
+    if not SMS_CODEWORD:
+        return False
+
+    return re.search(
+        rf"(?<![A-Za-zА-Яа-я0-9_]){re.escape(SMS_CODEWORD)}(?![A-Za-zА-Яа-я0-9_])",
+        text or "",
+        flags=re.IGNORECASE,
+    ) is not None
 
 
-def process_sms_text(text, telegram_sender_id=0):
-    """Проверяет SMS и атомарно зачисляет подходящий ожидаемый платёж.
+def sms_has_bank_sender(text):
+    """Проверяет, что первая непустая строка SMS — From: 5800."""
+    if not SMS_BANK_SENDER:
+        return False
 
-    Возвращает словарь результата. Денежная сумма из SMS сама по себе
-    никогда не зачисляется: зачисляется только requested_amount из БД.
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return False
+
+    return lines[0].lower() == SMS_BANK_SENDER.lower()
+
+
+def process_sms_text(text):
+    """Находит контрольную сумму платежа и зачисляет сумму заявки.
+
+    Пример:
+      пользователь запросил 4000 сум;
+      бот создал контрольную сумму 4180 сум;
+      SMS содержит From: 5800 и 4180;
+      бот находит в auto_refills запись 4180 -> user_id -> requested_amount=4000;
+      пользователю зачисляется именно 4000 сум.
     """
     if not text or len(text) > 4000:
         return {"ok": False, "reason": "bad_text"}
 
-    if SMS_GROUP_ID == 0:
-        return {"ok": False, "reason": "sms_group_not_configured"}
+    # Банковский SMS должен начинаться с From: 5800.
+    if not sms_has_bank_sender(text):
+        return {"ok": False, "reason": "bank_sender_not_found"}
 
-    if SMS_FORWARDER_USER_ID and telegram_sender_id != SMS_FORWARDER_USER_ID:
-        return {"ok": False, "reason": "wrong_forwarder"}
-
-    if not sms_contains_keywords(text):
-        return {"ok": False, "reason": "keywords_not_found"}
+    # Кодовое слово обязательно.
+    if not sms_contains_codeword(text):
+        return {"ok": False, "reason": "codeword_not_found"}
 
     amounts = extract_sms_amounts(text)
     if not amounts:
         return {"ok": False, "reason": "amount_not_found"}
 
-    sms_hash = hashlib.sha256(
-        text.strip().encode("utf-8")
-    ).hexdigest()
+    sms_hash = hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
     conn = db()
     cursor = conn.cursor()
@@ -629,6 +647,9 @@ def process_sms_text(text, telegram_sender_id=0):
             conn.close()
             return {"ok": False, "reason": "duplicate"}
 
+        # Ищем именно ту контрольную сумму, которую бот ранее выдал
+        # конкретному пользователю. Никакого сопоставления по случайному
+        # имени/ID из SMS не требуется.
         placeholders = ",".join("?" for _ in amounts)
         cursor.execute(
             f"""
@@ -636,6 +657,7 @@ def process_sms_text(text, telegram_sender_id=0):
             FROM auto_refills
             WHERE status = 'pending'
               AND payment_amount IN ({placeholders})
+              AND datetime(created_at) >= datetime('now', '-60 minutes')
             ORDER BY id ASC
             LIMIT 1
             """,
@@ -655,29 +677,31 @@ def process_sms_text(text, telegram_sender_id=0):
 
         refill_id, user_id, requested_amount, payment_amount = row
 
+        # Сначала помечаем именно эту заявку оплаченной.
         cursor.execute(
             "UPDATE auto_refills SET status = 'paid', paid_at = datetime('now') "
             "WHERE id = ? AND status = 'pending'",
             (refill_id,),
         )
-
         if cursor.rowcount != 1:
             conn.rollback()
             conn.close()
             return {"ok": False, "reason": "already_processed"}
 
+        # ВАЖНО: зачисляем requested_amount (например 4000),
+        # а не контрольную сумму payment_amount (например 4180).
         cursor.execute(
             "UPDATE users SET balance = balance + ? WHERE user_id = ?",
             (requested_amount, user_id),
         )
-
         if cursor.rowcount != 1:
             conn.rollback()
             conn.close()
             return {"ok": False, "reason": "user_not_found"}
 
         cursor.execute(
-            "INSERT INTO processed_sms (sms_hash, created_at) VALUES (?, datetime('now'))",
+            "INSERT INTO processed_sms (sms_hash, created_at) "
+            "VALUES (?, datetime('now'))",
             (sms_hash,),
         )
 
@@ -698,23 +722,22 @@ def process_sms_text(text, telegram_sender_id=0):
         return {"ok": False, "reason": "database_error"}
 
 
-async def sms_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получает SMS прямо из Telegram-группы от SMS2 Forwarder."""
+async def sms_forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает пересланное банковское SMS без ID группы/отправителя."""
     message = update.effective_message
-    if not message or not message.chat:
-        return
-
-    if SMS_GROUP_ID == 0 or message.chat.id != SMS_GROUP_ID:
+    if not message:
         return
 
     text = message.text or message.caption or ""
-    sender_id = message.from_user.id if message.from_user else 0
+    if not text:
+        return
 
-    result = process_sms_text(text, sender_id)
+    result = process_sms_text(text)
 
     if not result.get("ok"):
         if result.get("reason") not in {
-            "keywords_not_found",
+            "codeword_not_found",
+            "bank_sender_not_found",
             "amount_not_found",
             "payment_not_found",
             "duplicate",
@@ -732,7 +755,7 @@ async def sms_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=(
                 "✅ <b>Баланс пополнен автоматически!</b>\n\n"
                 f"💰 Зачислено: <b>{credited:,} сум</b>\n"
-                f"💳 Получено: <b>{received:,} сум</b>\n\n"
+                f"💳 Оплата: <b>{received:,} сум</b>\n\n"
                 "Оплата подтверждена по банковскому SMS."
             ),
             parse_mode="HTML",
@@ -748,7 +771,7 @@ async def sms_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "🤖 <b>АВТОПОПОЛНЕНИЕ</b>\n\n"
                     f"🆔 Пользователь: <code>{user_id}</code>\n"
                     f"💰 Зачислено: <b>{credited:,} сум</b>\n"
-                    f"💳 SMS: <b>{received:,} сум</b>"
+                    f"💳 Получено: <b>{received:,} сум</b>"
                 ),
                 parse_mode="HTML",
             )
@@ -1562,12 +1585,6 @@ async def refill_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return REFILL_AMOUNT
 
-    if SMS_GROUP_ID == 0:
-        await update.message.reply_text(
-            "❌ Автопополнение пока не настроено администратором."
-        )
-        return ConversationHandler.END
-
     try:
         payment_amount = create_auto_refill(
             update.effective_user.id,
@@ -2363,15 +2380,16 @@ def main():
 
     application.add_handler(admin_conversation)
 
-    # SMS2 Forwarder -> закрытая Telegram-группа -> этот обработчик.
-    # Он ставится до магазина, чтобы SMS из группы не попадали в другие диалоги.
-    if SMS_GROUP_ID:
-        application.add_handler(
-            MessageHandler(
-                filters.Chat(chat_id=SMS_GROUP_ID),
-                sms_group_message,
-            )
+    # SMS2 Forwarder -> StarPay.
+    # Никакой ID группы или ID отправителя не нужен.
+    # Обработчик стоит до ConversationHandler, чтобы банковское SMS
+    # не воспринималось как обычный ответ пользователя.
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            sms_forward_message,
         )
+    )
 
     # REFILL / BUY / GIFTS
     shop_conversation = ConversationHandler(
