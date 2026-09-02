@@ -1,4 +1,3 @@
-
 import os
 import re
 import uuid
@@ -929,16 +928,20 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================
 
 async def send_order_to_elder(product_type, value, target):
-    headers = {"X-Api-Key": ELDER_API_KEY}
+    order_id = uuid.uuid4().hex[:16]
+
+    headers = {
+        "X-Api-Key": ELDER_API_KEY,
+    }
 
     if product_type == "stars":
-        url = f"{ELDER_API_URL}/buyStars"
+        url = "https://elder.uz/buyStars"
         params = {
             "username": target,
             "amount": value,
         }
     else:
-        url = f"{ELDER_API_URL}/buyPremium"
+        url = "https://elder.uz/buyPremium"
         params = {
             "username": target,
             "months": value,
@@ -952,30 +955,74 @@ async def send_order_to_elder(product_type, value, target):
                 params=params,
             )
 
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+
+        success = bool(data.get("success"))
+        error_code = data.get("error_code") or data.get("error")
+
+        # Точная ошибка API видна только в Render Logs.
         logger.info(
-            "ELDER %s %s: %s",
-            url,
+            "ELDER API | order_id=%s | type=%s | target=@%s | value=%s | "
+            "status=%s | response=%s",
+            order_id,
+            product_type,
+            target,
+            value,
             response.status_code,
             response.text,
         )
 
-        try:
-            data = response.json()
-        except ValueError:
-            return False, "UNKNOWN_ERROR"
+        if response.status_code not in (200, 201) or not success:
+            logger.error(
+                "ELDER API FAILED | order_id=%s | status=%s | "
+                "error_code=%s | error=%s",
+                order_id,
+                response.status_code,
+                error_code or "UNKNOWN",
+                data.get("error", "UNKNOWN"),
+            )
 
-        if data.get("error_code") == "USER_NOT_FOUND":
-            return False, "USER_NOT_FOUND"
+            if error_code == "USER_NOT_FOUND":
+                return False, "USER_NOT_FOUND"
 
-        if response.status_code != 200 or not data.get("success"):
-            logger.error("ELDER API ERROR: %s", data)
-            return False, data.get("error_code", "UNKNOWN_ERROR")
+            return False, error_code or "UNKNOWN"
+
+        logger.info(
+            "ELDER API SUCCESS | order_id=%s | type=%s | target=@%s | value=%s",
+            order_id,
+            product_type,
+            target,
+            value,
+        )
 
         return True, None
 
+    except httpx.TimeoutException as e:
+        logger.exception(
+            "ELDER API TIMEOUT | order_id=%s | error=%s",
+            order_id,
+            e,
+        )
+        return False, "TIMEOUT"
+
+    except httpx.HTTPError as e:
+        logger.exception(
+            "ELDER API HTTP ERROR | order_id=%s | error=%s",
+            order_id,
+            e,
+        )
+        return False, "HTTP_ERROR"
+
     except Exception as e:
-        logger.exception("ELDER API ERROR: %s", e)
-        return False, "CONNECTION_ERROR"
+        logger.exception(
+            "ELDER API EXCEPTION | order_id=%s | error=%s",
+            order_id,
+            e,
+        )
+        return False, "EXCEPTION"
 
 
 # =========================================================
@@ -1171,34 +1218,6 @@ async def buy_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data.clear()
         return ConversationHandler.END
-
-    change_balance(user.id, -price)
-
-    await context.bot.send_message(
-        ADMIN_ID,
-        (
-            "🛒 <b>НОВЫЙ ЗАКАЗ</b>\n\n"
-            f"📦 Товар: {escape(product)}\n"
-            f"👤 Получатель: @{escape(username)}\n"
-            f"💰 Цена: {price:,} сум\n"
-            f"🆔 ID заказчика: <code>{user.id}</code>\n"
-            f"👤 Заказал: "
-            f"@{escape(user.username or 'нет username')}"
-        ),
-        parse_mode="HTML",
-    )
-
-    await query.message.edit_text(
-        (
-            "✅ <b>Заказ успешно выполнен!</b>\n\n"
-            f"📦 {escape(product)}\n"
-            f"👤 Получатель: @{escape(username)}"
-        ),
-        parse_mode="HTML",
-    )
-
-    context.user_data.clear()
-    return ConversationHandler.END
 
 
 # =========================================================
