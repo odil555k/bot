@@ -1233,7 +1233,21 @@ async def buy_start(update, context):
 
     data = query.data
 
-    # Покупка Stars
+    # Покупка Stars: ввод своего количества
+    if data == "buy_stars":
+
+        context.user_data["product_type"] = "stars"
+
+        await query.message.edit_text(
+            tr(
+                query.from_user.id,
+                "enter_stars",
+            )
+        )
+
+        return BUY_AMOUNT
+
+    # Покупка Stars: готовые варианты
     if data.startswith("buy_stars_"):
 
         amount = int(data.split("_")[2])
