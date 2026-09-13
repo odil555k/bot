@@ -41,7 +41,7 @@ DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
-    "5614 6812 1542 3546"
+    "5614 6835 8985 1641"
 )
 
 PRICE_PER_STAR = 220
@@ -272,8 +272,7 @@ TEXTS = {
             "💳 <b>Пополнение баланса</b>\n\n"
             "💰 Сумма: {amount:,} сум\n\n"
             "Переведите деньги на карту:\n"
-            "<code>{card}</code>\n"
-            "X/D\n\n"
+            "<code>{card}</code>\n\n"
             "После оплаты отправьте фото чека."
         ),
 
@@ -1138,87 +1137,77 @@ async def send_order_to_elder(
     value,
     target,
 ):
+    """
+    Stars отправляются по адресу, который ты показал:
+    https://elder.uz/buyStars?username=...&amount=...
 
-    order_id = uuid.uuid4().hex[:16]
-
-    headers = {
-
-        "X-Api-Key": ELDER_API_KEY,
-
-        "Content-Type": "application/json",
-
-    }
-
-    if product_type == "stars":
-
-        url = f"{ELDER_API_URL}/stars/buy"
-
-        payload = {
-
-            "username": target,
-
-            "amount": value,
-
-            "client_order_id": order_id,
-
-        }
-
-    else:
-
-        url = f"{ELDER_API_URL}/premium/buy"
-
-        payload = {
-
-            "username": target,
-
-            "months": value,
-
-            "client_order_id": order_id,
-
-        }
+    Для Premium оставлен прежний API-вызов.
+    """
 
     try:
+        async with httpx.AsyncClient(timeout=30) as client:
 
-        async with httpx.AsyncClient(
-            timeout=30
-        ) as client:
+            if product_type == "stars":
 
-            response = await client.post(
+                response = await client.get(
+                    "https://elder.uz/buyStars",
+                    headers={
+                        "X-Api-Key": ELDER_API_KEY,
+                    },
+                    params={
+                        "username": target,
+                        "amount": value,
+                    },
+                )
 
-                url,
+            else:
 
-                headers=headers,
+                order_id = uuid.uuid4().hex[:16]
 
-                json=payload,
-
-            )
+                response = await client.post(
+                    f"{ELDER_API_URL}/premium/buy",
+                    headers={
+                        "X-Api-Key": ELDER_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "username": target,
+                        "months": value,
+                        "client_order_id": order_id,
+                    },
+                )
 
         logger.info(
-
             "ELDER RESPONSE %s: %s",
-
             response.status_code,
-
             response.text,
-
         )
 
-        if response.status_code != 200:
+        if response.status_code not in (200, 201):
             return False
 
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            # Если API вернул не JSON, считаем запрос успешным
+            # только при успешном HTTP-статусе.
+            return True
 
-        return bool(
-            data.get("success")
-        )
+        # Поддерживаем несколько распространённых вариантов ответа API
+        if "success" in data:
+            return bool(data.get("success"))
+
+        if data.get("status") in ("success", "ok", "paid", "completed"):
+            return True
+
+        # Успешный HTTP-ответ без явной ошибки
+        return not bool(data.get("error"))
 
     except Exception as e:
-
         logger.exception(
             "ELDER API ERROR: %s",
             e,
         )
-
         return False
 
 
