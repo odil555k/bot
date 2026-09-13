@@ -1129,86 +1129,119 @@ async def language_callback(update, context):
 
 
 # =========================================================
-# ELDER API
+# ELDER API — НОВАЯ ДОКУМЕНТАЦИЯ
 # =========================================================
 
-async def send_order_to_elder(
-    product_type,
-    value,
-    target,
-):
-    """
-    Stars отправляются по адресу, который ты показал:
-    https://elder.uz/buyStars?username=...&amount=...
+async def send_order_to_elder(product_type, value, target):
+    order_id = uuid.uuid4().hex[:16]
 
-    Для Premium оставлен прежний API-вызов.
-    """
+    target = target.strip().replace("@", "")
+
+    headers = {
+        "X-Api-Key": ELDER_API_KEY,
+    }
+
+    if product_type == "stars":
+        url = f"{ELDER_API_URL}/buyStars"
+
+        params = {
+            "username": target,
+            "amount": int(value),
+        }
+
+    elif product_type == "premium":
+        url = f"{ELDER_API_URL}/buyPremium"
+
+        params = {
+            "username": target,
+            "months": int(value),
+        }
+
+    else:
+        logger.error(
+            "ELDER API ERROR | Неизвестный product_type: %s",
+            product_type,
+        )
+        return False, "UNKNOWN_PRODUCT"
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=40.0) as client:
 
-            if product_type == "stars":
-
-                response = await client.get(
-                    "https://elder.uz/buyStars",
-                    headers={
-                        "X-Api-Key": ELDER_API_KEY,
-                    },
-                    params={
-                        "username": target,
-                        "amount": value,
-                    },
-                )
-
-            else:
-
-                order_id = uuid.uuid4().hex[:16]
-
-                response = await client.post(
-                    f"{ELDER_API_URL}/premium/buy",
-                    headers={
-                        "X-Api-Key": ELDER_API_KEY,
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "username": target,
-                        "months": value,
-                        "client_order_id": order_id,
-                    },
-                )
+            response = await client.post(
+                url,
+                headers=headers,
+                params=params,
+            )
 
         logger.info(
-            "ELDER RESPONSE %s: %s",
+            "ELDER RESPONSE | order_id=%s | status=%s | body=%s",
+            order_id,
             response.status_code,
             response.text,
         )
 
-        if response.status_code not in (200, 201):
-            return False
-
         try:
             data = response.json()
-        except ValueError:
-            # Если API вернул не JSON, считаем запрос успешным
-            # только при успешном HTTP-статусе.
-            return True
+        except Exception:
+            logger.error(
+                "ELDER API | Сервер вернул не JSON: %s",
+                response.text,
+            )
+            return False, "INVALID_RESPONSE"
 
-        # Поддерживаем несколько распространённых вариантов ответа API
-        if "success" in data:
-            return bool(data.get("success"))
+        if response.status_code == 200 and data.get("success") is True:
 
-        if data.get("status") in ("success", "ok", "paid", "completed"):
-            return True
+            logger.info(
+                "ELDER SUCCESS | order_id=%s | type=%s | username=@%s | value=%s",
+                order_id,
+                product_type,
+                target,
+                value,
+            )
 
-        # Успешный HTTP-ответ без явной ошибки
-        return not bool(data.get("error"))
+            return True, None
 
-    except Exception as e:
+        error_code = data.get("error_code", "UNKNOWN")
+        error_message = data.get("error", "Неизвестная ошибка")
+
+        logger.error(
+            "ELDER FAILED | order_id=%s | status=%s | code=%s | error=%s",
+            order_id,
+            response.status_code,
+            error_code,
+            error_message,
+        )
+
+        return False, error_code
+
+    except httpx.TimeoutException:
+
         logger.exception(
-            "ELDER API ERROR: %s",
+            "ELDER TIMEOUT | order_id=%s",
+            order_id,
+        )
+
+        return False, "TIMEOUT"
+
+    except httpx.HTTPError as e:
+
+        logger.exception(
+            "ELDER HTTP ERROR | order_id=%s | error=%s",
+            order_id,
             e,
         )
-        return False
+
+        return False, "HTTP_ERROR"
+
+    except Exception as e:
+
+        logger.exception(
+            "ELDER UNKNOWN ERROR | order_id=%s | error=%s",
+            order_id,
+            e,
+        )
+
+        return False, "EXCEPTION"
 
 
 # =========================================================
