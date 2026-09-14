@@ -4,6 +4,8 @@ import uuid
 import sqlite3
 import logging
 import threading
+import asyncio
+from datetime import datetime, timedelta
 from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -36,6 +38,11 @@ ADMIN_ID = int(os.environ["ADMIN_ID"])
 
 ELDER_API_KEY = os.environ["ELDER_API_KEY"]
 ELDER_API_URL = "https://elder.uz"
+
+# ELDER PAY — данные кассы добавляются в Environment Variables Render
+ELDER_PAY_API_URL = "https://pay.elder.uz/api"
+ELDER_PAY_SHOP_ID = os.environ.get("ELDER_PAY_SHOP_ID", "")
+ELDER_PAY_SHOP_KEY = os.environ.get("ELDER_PAY_SHOP_KEY", "")
 
 DB_FILE = "bot_database.db"
 
@@ -70,7 +77,6 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 REFILL_AMOUNT = 1
-REFILL_CHECK = 2
 
 BUY_AMOUNT = 3
 BUY_USERNAME = 4
@@ -429,6 +435,18 @@ def init_db():
             balance INTEGER DEFAULT 0,
             lang TEXT DEFAULT 'ru',
             is_banned INTEGER DEFAULT 0
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS elder_pay_payments (
+            order_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            amount INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            credited INTEGER NOT NULL DEFAULT 0,
+            pay_url TEXT,
+            created_at TEXT NOT NULL
         )
     """)
 
@@ -1549,215 +1567,297 @@ async def buy_confirm(update, context):
 
 
 # =========================================================
-# ПОПОЛНЕНИЕ
+# ELDER PAY — ПОПОЛНЕНИЕ БАЛАНСА
 # =========================================================
 
-async def refill_start(update, context):
-
-    query = update.callback_query
-
-    await query.answer()
-
-    context.user_data.clear()
-
-    await query.message.edit_text(
-
-        tr(
-            query.from_user.id,
-            "refill_enter",
-        )
-
+def save_elder_payment(order_id, user_id, amount, pay_url, status="pending"):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT OR REPLACE INTO elder_pay_payments
+        (order_id, user_id, amount, status, credited, pay_url, created_at)
+        VALUES (?, ?, ?, ?, 0, ?, ?)
+        """,
+        (order_id, user_id, amount, status, pay_url or "", datetime.utcnow().isoformat()),
     )
+    conn.commit()
+    conn.close()
 
+
+def get_pending_elder_payments():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT order_id, user_id, amount, status, credited, pay_url, created_at
+        FROM elder_pay_payments
+        WHERE status = 'pending' AND credited = 0
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_elder_payment(order_id):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT order_id, user_id, amount, status, credited, pay_url, created_at
+        FROM elder_pay_payments WHERE order_id = ?
+        """,
+        (order_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def mark_payment_cancelled(order_id):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("UPDATE elder_pay_payments SET status = 'cancel' WHERE order_id = ? AND credited = 0", (order_id,))
+    conn.commit()
+    conn.close()
+
+
+def credit_elder_payment_once(order_id):
+    """Атомарно начисляет баланс только один раз."""
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute(
+            "SELECT user_id, amount, credited FROM elder_pay_payments WHERE order_id = ?",
+            (order_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        user_id, amount, credited = row
+        if credited:
+            conn.rollback()
+            return False
+        cur.execute(
+            "UPDATE elder_pay_payments SET status = 'paid', credited = 1 WHERE order_id = ? AND credited = 0",
+            (order_id,),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            return False
+        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+        conn.commit()
+        return user_id, amount
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+async def elder_pay_create(user_id, amount):
+    if not ELDER_PAY_SHOP_ID or not ELDER_PAY_SHOP_KEY:
+        logger.error("ELDER PAY SHOP_ID/SHOP_KEY are not configured")
+        return None, "NOT_CONFIGURED"
+
+    payload = {
+        "method": "create",
+        "shop_id": ELDER_PAY_SHOP_ID,
+        "shop_key": ELDER_PAY_SHOP_KEY,
+        "amount": int(amount),
+        "user_id": f"telegram_{user_id}",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(ELDER_PAY_API_URL, json=payload)
+        logger.info("ELDER PAY CREATE | status=%s | body=%s", response.status_code, response.text)
+        data = response.json()
+        if response.status_code == 200 and data.get("status") == "success" and data.get("order"):
+            return data, None
+        return None, data.get("message", f"HTTP_{response.status_code}")
+    except Exception as e:
+        logger.exception("ELDER PAY CREATE ERROR: %s", e)
+        return None, "NETWORK_ERROR"
+
+
+async def elder_pay_check(order_id):
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(ELDER_PAY_API_URL, json={"method": "check", "order": order_id})
+        logger.info("ELDER PAY CHECK | order=%s | status=%s | body=%s", order_id, response.status_code, response.text)
+        data = response.json()
+        if response.status_code == 200 and data.get("status") == "success":
+            return data.get("data", {}).get("status"), None
+        return None, data.get("message", "CHECK_ERROR")
+    except Exception as e:
+        logger.exception("ELDER PAY CHECK ERROR | order=%s | %s", order_id, e)
+        return None, "NETWORK_ERROR"
+
+
+async def process_elder_payment(order_id, context):
+    row = get_elder_payment(order_id)
+    if not row:
+        return "missing"
+    if row[4]:
+        return "already_paid"
+
+    status, error = await elder_pay_check(order_id)
+    if error:
+        return "error"
+    if status == "paid":
+        result = credit_elder_payment_once(order_id)
+        if result and result is not False:
+            user_id, amount = result
+            try:
+                await context.bot.send_message(
+                    user_id,
+                    f"✅ <b>Баланс успешно пополнен!</b>\n\n💰 Сумма: <b>{amount:,} сум</b>",
+                    parse_mode="HTML",
+                )
+                await context.bot.send_message(
+                    ADMIN_ID,
+                    f"💳 <b>Автоматическое пополнение</b>\n\n👤 ID: <code>{user_id}</code>\n💰 Сумма: <b>{amount:,} сум</b>\n📦 Order: <code>{order_id}</code>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                logger.exception("PAYMENT NOTIFICATION ERROR")
+            return "paid"
+        return "already_paid"
+    if status == "cancel":
+        mark_payment_cancelled(order_id)
+        return "cancel"
+    return "pending"
+
+
+async def refill_start(update, context):
+    query = update.callback_query
+    await query.answer()
+    context.user_data.clear()
+    await query.message.edit_text(tr(query.from_user.id, "refill_enter"))
     return REFILL_AMOUNT
 
 
 async def refill_amount(update, context):
-
-    text = update.message.text.replace(" ", "")
-
-    if not text.isdigit():
-
-        await update.message.reply_text(
-            "❌ Введите корректную сумму."
-        )
-
+    text = re.sub(r"[^0-9]", "", update.message.text or "")
+    if not text:
+        await update.message.reply_text("❌ Введите корректную сумму.")
         return REFILL_AMOUNT
 
     amount = int(text)
-
-    if amount <= 0:
-
-        await update.message.reply_text(
-            "❌ Введите корректную сумму."
-        )
-
+    if amount < 1000:
+        await update.message.reply_text("❌ Минимальная сумма пополнения: 1 000 сум.")
+        return REFILL_AMOUNT
+    if amount > 10_000_000:
+        await update.message.reply_text("❌ Слишком большая сумма.")
         return REFILL_AMOUNT
 
-    context.user_data["refill_amount"] = amount
-
-    await update.message.reply_text(
-
-        tr(
-
-            update.effective_user.id,
-
-            "refill_payment",
-
-            amount=amount,
-
-            card=CARD_NUMBER,
-
-        ),
-
-        parse_mode="HTML",
-
-    )
-
-    return REFILL_CHECK
-
-
-async def refill_check(update, context):
-
-    if not update.message.photo:
-
+    result, error = await elder_pay_create(update.effective_user.id, amount)
+    if error:
         await update.message.reply_text(
-
-            tr(
-                update.effective_user.id,
-                "send_receipt",
-            )
-
+            "❌ Не удалось создать платёж.\n\n"
+            f"Причина: <code>{escape(str(error))}</code>\n\n"
+            "Попробуйте ещё раз позже.",
+            parse_mode="HTML",
         )
+        return ConversationHandler.END
 
-        return REFILL_CHECK
+    order_id = result["order"]
+    pay_url = result.get("pay_url", "")
+    save_elder_payment(order_id, update.effective_user.id, amount, pay_url)
 
-    user = update.effective_user
-
-    amount = context.user_data.get(
-        "refill_amount",
-        0,
-    )
-
-    photo = update.message.photo[-1]
-
-    caption = (
-
-        "💳 <b>НОВОЕ ПОПОЛНЕНИЕ</b>\n\n"
-
-        f"👤 Пользователь: "
-        f"@{escape(user.username or 'нет username')}\n"
-
-        f"🆔 ID: <code>{user.id}</code>\n"
-
-        f"💰 Сумма: <b>{amount:,} сум</b>"
-
-    )
-
-    keyboard = InlineKeyboardMarkup([
-
-        [
-
-            InlineKeyboardButton(
-
-                "✅ Одобрить",
-
-                callback_data=(
-                    f"approve_refill_{user.id}_{amount}"
-                ),
-
-            ),
-
-            InlineKeyboardButton(
-
-                "❌ Отклонить",
-
-                callback_data=(
-                    f"reject_refill_{user.id}"
-                ),
-
-            ),
-
-        ]
-
-    ])
-
-    await context.bot.send_photo(
-
-        chat_id=ADMIN_ID,
-
-        photo=photo.file_id,
-
-        caption=caption,
-
-        parse_mode="HTML",
-
-        reply_markup=keyboard,
-
-    )
+    keyboard = []
+    if pay_url:
+        keyboard.append([InlineKeyboardButton("💳 Оплатить", url=pay_url)])
+    keyboard.append([InlineKeyboardButton("🔄 Проверить оплату", callback_data=f"paycheck:{order_id}")])
+    keyboard.append([InlineKeyboardButton("❌ Отменить платёж", callback_data=f"paycancel:{order_id}")])
 
     await update.message.reply_text(
-
-        tr(
-            user.id,
-            "receipt_sent",
-        )
-
+        "💳 <b>Платёж создан!</b>\n\n"
+        f"💰 Сумма: <b>{amount:,} сум</b>\n"
+        "⏳ Платёж действует примерно 5 минут.\n\n"
+        "После оплаты баланс будет начислен автоматически.\n"
+        "Если хотите — нажмите «Проверить оплату».",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
-
     context.user_data.clear()
-
     return ConversationHandler.END
 
 
-async def payment_callback(update, context):
-
+async def elder_pay_callback(update, context):
     query = update.callback_query
-
-    if query.from_user.id != ADMIN_ID:
-        await query.answer("❌ Нет доступа.", show_alert=True)
+    data = query.data
+    await query.answer()
+    _, order_id = data.split(":", 1)
+    row = get_elder_payment(order_id)
+    if not row or row[1] != query.from_user.id:
+        await query.answer("❌ Этот платёж не найден.", show_alert=True)
         return
 
-    await query.answer()
+    if data.startswith("paycheck:"):
+        result = await process_elder_payment(order_id, context)
+        messages = {
+            "paid": "✅ Оплата найдена! Баланс начислен.",
+            "already_paid": "✅ Этот платёж уже зачислен.",
+            "pending": "⏳ Оплата пока не найдена. Если вы только что оплатили — подождите несколько секунд.",
+            "cancel": "❌ Этот платёж отменён.",
+            "error": "⚠️ Сейчас не удалось проверить оплату. Попробуйте ещё раз.",
+            "missing": "❌ Платёж не найден.",
+        }
+        await query.message.reply_text(messages.get(result, "⚠️ Неизвестный статус."))
+        return
 
-    parts = query.data.split("_")
+    if data.startswith("paycancel:"):
+        if not ELDER_PAY_SHOP_ID or not ELDER_PAY_SHOP_KEY:
+            await query.message.reply_text("❌ Настройки оплаты не найдены.")
+            return
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(ELDER_PAY_API_URL, json={
+                    "method": "cancel",
+                    "order": order_id,
+                    "shop_id": ELDER_PAY_SHOP_ID,
+                    "shop_key": ELDER_PAY_SHOP_KEY,
+                })
+            data_json = response.json()
+            if response.status_code == 200 and data_json.get("status") == "success":
+                mark_payment_cancelled(order_id)
+                await query.message.edit_reply_markup(reply_markup=None)
+                await query.message.reply_text("❌ Платёж отменён.")
+            else:
+                await query.message.reply_text("⚠️ Не удалось отменить платёж. Возможно, он уже оплачен.")
+        except Exception:
+            logger.exception("ELDER PAY CANCEL ERROR")
+            await query.message.reply_text("⚠️ Ошибка отмены платежа.")
 
-    if query.data.startswith("approve_refill_"):
 
-        user_id = int(parts[2])
-        amount = int(parts[3])
+async def elder_pay_watcher(application):
+    """Автоматически проверяет все активные платежи каждые 5 секунд."""
+    while True:
+        try:
+            rows = get_pending_elder_payments()
+            for row in rows:
+                order_id, user_id, amount, status, credited, pay_url, created_at = row
+                try:
+                    created = datetime.fromisoformat(created_at)
+                    if datetime.utcnow() - created > timedelta(minutes=7):
+                        continue
+                except Exception:
+                    pass
+                await process_elder_payment(order_id, application)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("ELDER PAY WATCHER ERROR")
+        await asyncio.sleep(5)
 
-        change_balance(user_id, amount)
 
-        await context.bot.send_message(
-            user_id,
-            (
-                "✅ <b>Баланс пополнен!</b>\n\n"
-                f"💰 Сумма: {amount:,} сум"
-            ),
-            parse_mode="HTML",
-        )
-
-        await query.edit_message_caption(
-            caption=(query.message.caption or "") + "\n\n✅ ОДОБРЕНО",
-            parse_mode="HTML",
-            reply_markup=None,
-        )
-
-    elif query.data.startswith("reject_refill_"):
-
-        user_id = int(parts[2])
-
-        await context.bot.send_message(
-            user_id,
-            "❌ Пополнение отклонено.",
-        )
-
-        await query.edit_message_caption(
-            caption=(query.message.caption or "") + "\n\n❌ ОТКЛОНЕНО",
-            parse_mode="HTML",
-            reply_markup=None,
-        )
+async def post_init(application):
+    application.create_task(elder_pay_watcher(application))
+    logger.info("ELDER PAY WATCHER STARTED")
 
 
 # =========================================================
@@ -2915,6 +3015,8 @@ def main():
 
         .token(BOT_TOKEN)
 
+        .post_init(post_init)
+
         .build()
 
     )
@@ -2971,26 +3073,6 @@ def main():
                     refill_amount,
 
                 )
-
-            ],
-
-            REFILL_CHECK: [
-
-                MessageHandler(
-
-                    filters.PHOTO,
-
-                    refill_check,
-
-                ),
-
-                MessageHandler(
-
-                    filters.ALL,
-
-                    refill_check,
-
-                ),
 
             ],
 
@@ -3279,15 +3361,10 @@ def main():
     # =====================================================
 
     application.add_handler(
-
         CallbackQueryHandler(
-
-            payment_callback,
-
-            pattern=r"^(approve_refill|reject_refill)_",
-
+            elder_pay_callback,
+            pattern=r"^(paycheck|paycancel):",
         )
-
     )
 
 
@@ -3356,4 +3433,3 @@ async def unknown_callback(update, context):
 if __name__ == "__main__":
 
     main()
-
