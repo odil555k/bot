@@ -98,6 +98,11 @@ ADMIN_UNBAN_ID = 14
 ADMIN_MESSAGE_ID = 15
 ADMIN_MESSAGE_TEXT = 16
 
+PROMO_ENTER = 17
+ADMIN_PROMO_CODE = 18
+ADMIN_PROMO_BONUS = 19
+ADMIN_PROMO_USES = 20
+
 
 # =========================================================
 # ПОДАРКИ
@@ -442,6 +447,27 @@ def init_db():
         )
     """)
 
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS promo_codes (
+            code TEXT PRIMARY KEY,
+            bonus INTEGER NOT NULL,
+            max_uses INTEGER NOT NULL DEFAULT 1,
+            used_count INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS promo_uses (
+            code TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            used_at TEXT NOT NULL,
+            PRIMARY KEY (code, user_id)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -602,6 +628,75 @@ def get_users():
     return rows
 
 
+def create_promo(code, bonus, max_uses):
+    code = code.strip().upper()
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO promo_codes (code, bonus, max_uses, used_count, active, created_at) VALUES (?, ?, ?, 0, 1, ?)",
+            (code, bonus, max_uses, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        return True, None
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return False, "exists"
+    except Exception:
+        conn.rollback()
+        logger.exception("CREATE PROMO ERROR")
+        return False, "error"
+    finally:
+        conn.close()
+
+
+def redeem_promo(user_id, code):
+    code = code.strip().upper()
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute("SELECT bonus, max_uses, used_count, active FROM promo_codes WHERE code = ?", (code,))
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return "not_found", 0
+        bonus, max_uses, used_count, active = row
+        if not active:
+            conn.rollback()
+            return "inactive", 0
+        if used_count >= max_uses:
+            conn.rollback()
+            return "limit", 0
+        cur.execute("SELECT 1 FROM promo_uses WHERE code = ? AND user_id = ?", (code, user_id))
+        if cur.fetchone():
+            conn.rollback()
+            return "already_used", 0
+        cur.execute("INSERT INTO promo_uses (code, user_id, used_at) VALUES (?, ?, ?)", (code, user_id, datetime.utcnow().isoformat()))
+        cur.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ? AND active = 1 AND used_count < max_uses", (code,))
+        if cur.rowcount != 1:
+            conn.rollback()
+            return "limit", 0
+        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (bonus, user_id))
+        conn.commit()
+        return "success", bonus
+    except Exception:
+        conn.rollback()
+        logger.exception("REDEEM PROMO ERROR")
+        return "error", 0
+    finally:
+        conn.close()
+
+
+def get_promos():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT code, bonus, max_uses, used_count, active FROM promo_codes ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
 def tr(user_id, key, **kwargs):
 
     data = get_user(user_id)
@@ -727,6 +822,13 @@ def main_keyboard(user_id):
                 "👤 Профиль",
                 callback_data="main_profile",
             ),
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🎟 Промокод",
+                callback_data="main_promo",
+            )
         ],
 
         [
@@ -1724,6 +1826,40 @@ async def process_elder_payment(order_id, context):
     return "pending"
 
 
+async def promo_start(update, context):
+    query = update.callback_query
+    await query.answer()
+    if await check_ban(update):
+        return ConversationHandler.END
+    context.user_data.clear()
+    await query.message.edit_text(
+        "🎟 <b>Введите промокод</b>\n\nНапример: <code>STAR2026</code>",
+        parse_mode="HTML",
+    )
+    return PROMO_ENTER
+
+
+async def promo_enter(update, context):
+    if await check_ban(update):
+        return ConversationHandler.END
+    code = (update.message.text or "").strip()
+    if len(code) > 50 or not re.fullmatch(r"[A-Za-z0-9_-]+", code):
+        await update.message.reply_text("❌ Неверный промокод. Используйте только буквы, цифры, _ или -.")
+        return PROMO_ENTER
+    status, bonus = redeem_promo(update.effective_user.id, code)
+    messages = {
+        "success": f"🎉 <b>Промокод активирован!</b>\n\n💰 Вам начислено: <b>{bonus:,} сум</b>",
+        "not_found": "❌ Такой промокод не найден.",
+        "inactive": "❌ Этот промокод отключён.",
+        "limit": "❌ Лимит активаций этого промокода исчерпан.",
+        "already_used": "❌ Вы уже использовали этот промокод.",
+        "error": "⚠️ Не удалось активировать промокод. Попробуйте позже.",
+    }
+    await update.message.reply_text(messages.get(status, messages["error"]), parse_mode="HTML")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
 async def refill_start(update, context):
     query = update.callback_query
     await query.answer()
@@ -2327,6 +2463,15 @@ def admin_keyboard():
         [
 
             InlineKeyboardButton(
+                "🎟 Промокоды",
+                callback_data="admin_promo",
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
                 "👥 Пользователи",
                 callback_data="admin_users",
             )
@@ -2440,6 +2585,36 @@ async def admin_callback(update, context):
         )
 
         return ADMIN_MESSAGE_ID
+
+
+    if data == "admin_promo":
+
+        promos = get_promos()
+        text = "🎟 <b>ПРОМОКОДЫ</b>\n\n"
+        if promos:
+            for code, bonus, max_uses, used_count, active in promos[:30]:
+                status = "🟢" if active else "🔴"
+                text += f"{status} <code>{escape(code)}</code> — {bonus:,} сум — {used_count}/{max_uses}\n"
+        else:
+            text += "Промокодов пока нет.\n"
+        await query.message.edit_text(
+            text + "\nНажмите «Создать промокод», чтобы добавить новый.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Создать промокод", callback_data="admin_promo_create")],
+                [InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")],
+            ]),
+            parse_mode="HTML",
+        )
+        return ConversationHandler.END
+
+
+    if data == "admin_promo_create":
+
+        await query.message.edit_text(
+            "🎟 <b>Создание промокода</b>\n\nВведите код, например: <code>STAR2026</code>",
+            parse_mode="HTML",
+        )
+        return ADMIN_PROMO_CODE
 
 
     if data == "admin_users":
@@ -2636,6 +2811,57 @@ async def admin_callback(update, context):
 # =========================================================
 # АДМИН: ДОБАВИТЬ БАЛАНС
 # =========================================================
+
+async def admin_promo_code(update, context):
+    code = (update.message.text or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9_-]{3,50}", code):
+        await update.message.reply_text("❌ Код: 3–50 символов, только A-Z, 0-9, _ или -.")
+        return ADMIN_PROMO_CODE
+    context.user_data["promo_code"] = code
+    await update.message.reply_text("💰 Введите сумму бонуса в сумах. Например: 5000")
+    return ADMIN_PROMO_BONUS
+
+
+async def admin_promo_bonus(update, context):
+    text = re.sub(r"[^0-9]", "", update.message.text or "")
+    if not text:
+        await update.message.reply_text("❌ Введите сумму цифрами.")
+        return ADMIN_PROMO_BONUS
+    bonus = int(text)
+    if bonus < 1 or bonus > 10_000_000:
+        await update.message.reply_text("❌ Бонус должен быть от 1 до 10 000 000 сум.")
+        return ADMIN_PROMO_BONUS
+    context.user_data["promo_bonus"] = bonus
+    await update.message.reply_text("👥 Сколько раз можно использовать промокод? Введите число, например 100.")
+    return ADMIN_PROMO_USES
+
+
+async def admin_promo_uses(update, context):
+    text = re.sub(r"[^0-9]", "", update.message.text or "")
+    if not text:
+        await update.message.reply_text("❌ Введите количество активаций цифрами.")
+        return ADMIN_PROMO_USES
+    uses = int(text)
+    if uses < 1 or uses > 1_000_000:
+        await update.message.reply_text("❌ Количество активаций должно быть от 1 до 1 000 000.")
+        return ADMIN_PROMO_USES
+    code = context.user_data.get("promo_code")
+    bonus = context.user_data.get("promo_bonus")
+    ok, error = create_promo(code, bonus, uses)
+    if not ok:
+        await update.message.reply_text("❌ Такой промокод уже существует." if error == "exists" else "❌ Не удалось создать промокод.")
+        context.user_data.clear()
+        return ConversationHandler.END
+    await update.message.reply_text(
+        "✅ <b>Промокод создан!</b>\n\n"
+        f"🎟 Код: <code>{escape(code)}</code>\n"
+        f"💰 Бонус: <b>{bonus:,} сум</b>\n"
+        f"👥 Активаций: <b>{uses}</b>",
+        parse_mode="HTML",
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
 
 async def admin_add_id(update, context):
 
@@ -3162,6 +3388,34 @@ def main():
 
                 )
 
+            ],
+
+            PROMO_ENTER: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    promo_enter,
+                )
+            ],
+
+            ADMIN_PROMO_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    admin_promo_code,
+                )
+            ],
+
+            ADMIN_PROMO_BONUS: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    admin_promo_bonus,
+                )
+            ],
+
+            ADMIN_PROMO_USES: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    admin_promo_uses,
+                )
             ],
 
             ADMIN_ADD_ID: [
