@@ -4,8 +4,7 @@ import uuid
 import sqlite3
 import logging
 import threading
-import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -38,11 +37,6 @@ ADMIN_ID = int(os.environ["ADMIN_ID"])
 
 ELDER_API_KEY = os.environ["ELDER_API_KEY"]
 ELDER_API_URL = "https://elder.uz"
-
-# ELDER PAY — данные кассы добавляются в Environment Variables Render
-ELDER_PAY_API_URL = "https://pay.elder.uz/api"
-ELDER_PAY_SHOP_ID = os.environ.get("ELDER_PAY_SHOP_ID", "")
-ELDER_PAY_SHOP_KEY = os.environ.get("ELDER_PAY_SHOP_KEY", "")
 
 DB_FILE = "bot_database.db"
 
@@ -77,6 +71,8 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 REFILL_AMOUNT = 1
+REFILL_CHECK = 2
+
 
 BUY_AMOUNT = 3
 BUY_USERNAME = 4
@@ -97,11 +93,6 @@ ADMIN_UNBAN_ID = 14
 
 ADMIN_MESSAGE_ID = 15
 ADMIN_MESSAGE_TEXT = 16
-
-PROMO_ENTER = 17
-ADMIN_PROMO_CODE = 18
-ADMIN_PROMO_BONUS = 19
-ADMIN_PROMO_USES = 20
 
 
 # =========================================================
@@ -281,10 +272,13 @@ TEXTS = {
 
         "refill_payment": (
             "💳 <b>Пополнение баланса</b>\n\n"
-            "💰 Сумма: {amount:,} сум\n\n"
-            "Переведите деньги на карту:\n"
+            "💰 На баланс: <b>{amount:,} сум</b>\n"
+            "💵 Перевести нужно: <b>{payment_amount:,} сум</b>\n\n"
+            "Переведите <b>точно эту сумму</b> на карту:\n"
             "<code>{card}</code>\n\n"
-            "После оплаты отправьте фото чека."
+            "После перевода чек отправлять не нужно.\n"
+            "🤖 Платёж будет найден автоматически через CardXabar.\n\n"
+            "🧪 <i>Сейчас включён тестовый режим: после обнаружения перевода баланс пока НЕ изменяется.</i>"
         ),
 
         "receipt_sent": "⏳ Чек отправлен администратору.",
@@ -382,10 +376,13 @@ TEXTS = {
 
         "refill_payment": (
             "💳 <b>Balansni to'ldirish</b>\n\n"
-            "💰 Summa: {amount:,} so'm\n\n"
-            "Kartaga pul o'tkazing:\n"
+            "💰 Balansga: <b>{amount:,} so'm</b>\n"
+            "💵 Aynan o'tkazish kerak: <b>{payment_amount:,} so'm</b>\n\n"
+            "Kartaga <b>aynan shu summani</b> o'tkazing:\n"
             "<code>{card}</code>\n\n"
-            "To'lovdan keyin chek rasmini yuboring."
+            "To'lovdan keyin chek yuborish shart emas.\n"
+            "🤖 To'lov CardXabar orqali avtomatik topiladi.\n\n"
+            "🧪 <i>Hozir test rejimi: to'lov topilganda balans hali o'zgarmaydi.</i>"
         ),
 
         "receipt_sent": "⏳ Chek administratorga yuborildi.",
@@ -443,36 +440,26 @@ def init_db():
         )
     """)
 
+    # CardXabar: ожидаемые пополнения.
+    # payment_amount — уникальная сумма, которую пользователь должен перевести.
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS elder_pay_payments (
-            order_id TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS cardxabar_payments (
+            payment_id TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL,
-            amount INTEGER NOT NULL,
+            requested_amount INTEGER NOT NULL,
+            payment_amount INTEGER NOT NULL UNIQUE,
             status TEXT NOT NULL DEFAULT 'pending',
-            credited INTEGER NOT NULL DEFAULT 0,
-            pay_url TEXT,
             created_at TEXT NOT NULL
         )
     """)
 
-
+    # CardXabar: защита от повторной обработки одного и того же сообщения.
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS promo_codes (
-            code TEXT PRIMARY KEY,
-            bonus INTEGER NOT NULL,
-            max_uses INTEGER NOT NULL DEFAULT 1,
-            used_count INTEGER NOT NULL DEFAULT 0,
-            active INTEGER NOT NULL DEFAULT 1,
+        CREATE TABLE IF NOT EXISTS cardxabar_transactions (
+            fingerprint TEXT PRIMARY KEY,
+            payment_amount INTEGER NOT NULL,
+            raw_text TEXT NOT NULL,
             created_at TEXT NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS promo_uses (
-            code TEXT NOT NULL,
-            user_id INTEGER NOT NULL,
-            used_at TEXT NOT NULL,
-            PRIMARY KEY (code, user_id)
         )
     """)
 
@@ -636,73 +623,91 @@ def get_users():
     return rows
 
 
-def create_promo(code, bonus, max_uses):
-    code = code.strip().upper()
+def create_cardxabar_payment(user_id, requested_amount):
+    """Создаёт уникальную сумму для перевода через CardXabar."""
+    if requested_amount < 1000 or requested_amount > 9_999_900:
+        raise ValueError("Сумма для CardXabar должна быть от 1000 до 9 999 900 сум.")
+
     conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO promo_codes (code, bonus, max_uses, used_count, active, created_at) VALUES (?, ?, ?, 0, 1, ?)",
-            (code, bonus, max_uses, datetime.utcnow().isoformat()),
+        for _ in range(200):
+            # Двузначный суффикс: например 10000 -> 10047.
+            suffix = uuid.uuid4().int % 90 + 10
+            payment_amount = requested_amount + suffix
+
+            try:
+                payment_id = uuid.uuid4().hex
+                cursor.execute(
+                    """
+                    INSERT INTO cardxabar_payments
+                    (payment_id, user_id, requested_amount, payment_amount, status, created_at)
+                    VALUES (?, ?, ?, ?, 'pending', ?)
+                    """,
+                    (
+                        payment_id,
+                        user_id,
+                        requested_amount,
+                        payment_amount,
+                        datetime.now().isoformat(timespec="seconds"),
+                    ),
+                )
+                conn.commit()
+                return payment_id, payment_amount
+            except sqlite3.IntegrityError:
+                # Такая уникальная сумма уже занята другим ожидающим платежом.
+                conn.rollback()
+                continue
+
+        raise RuntimeError("Не удалось создать уникальную сумму CardXabar.")
+    finally:
+        conn.close()
+
+
+def get_cardxabar_payment(payment_amount):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT payment_id, user_id, requested_amount, payment_amount, status, created_at
+        FROM cardxabar_payments
+        WHERE payment_amount = ? AND status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT 1
+        """,
+        (payment_amount,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+def mark_cardxabar_test_transaction(fingerprint, payment_amount, raw_text):
+    """Записывает найденную транзакцию. Баланс НЕ меняет."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO cardxabar_transactions
+            (fingerprint, payment_amount, raw_text, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                fingerprint,
+                payment_amount,
+                raw_text,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
         )
         conn.commit()
-        return True, None
+        return True
     except sqlite3.IntegrityError:
         conn.rollback()
-        return False, "exists"
-    except Exception:
-        conn.rollback()
-        logger.exception("CREATE PROMO ERROR")
-        return False, "error"
+        return False
     finally:
         conn.close()
-
-
-def redeem_promo(user_id, code):
-    code = code.strip().upper()
-    conn = sqlite3.connect(DB_FILE)
-    try:
-        cur = conn.cursor()
-        cur.execute("BEGIN IMMEDIATE")
-        cur.execute("SELECT bonus, max_uses, used_count, active FROM promo_codes WHERE code = ?", (code,))
-        row = cur.fetchone()
-        if not row:
-            conn.rollback()
-            return "not_found", 0
-        bonus, max_uses, used_count, active = row
-        if not active:
-            conn.rollback()
-            return "inactive", 0
-        if used_count >= max_uses:
-            conn.rollback()
-            return "limit", 0
-        cur.execute("SELECT 1 FROM promo_uses WHERE code = ? AND user_id = ?", (code, user_id))
-        if cur.fetchone():
-            conn.rollback()
-            return "already_used", 0
-        cur.execute("INSERT INTO promo_uses (code, user_id, used_at) VALUES (?, ?, ?)", (code, user_id, datetime.utcnow().isoformat()))
-        cur.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ? AND active = 1 AND used_count < max_uses", (code,))
-        if cur.rowcount != 1:
-            conn.rollback()
-            return "limit", 0
-        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (bonus, user_id))
-        conn.commit()
-        return "success", bonus
-    except Exception:
-        conn.rollback()
-        logger.exception("REDEEM PROMO ERROR")
-        return "error", 0
-    finally:
-        conn.close()
-
-
-def get_promos():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT code, bonus, max_uses, used_count, active FROM promo_codes ORDER BY created_at DESC")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
 
 
 def tr(user_id, key, **kwargs):
@@ -830,13 +835,6 @@ def main_keyboard(user_id):
                 "👤 Профиль",
                 callback_data="main_profile",
             ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🎟 Промокод",
-                callback_data="main_promo",
-            )
         ],
 
         [
@@ -1669,331 +1667,231 @@ async def buy_confirm(update, context):
 
 
 # =========================================================
-# ELDER PAY — ПОПОЛНЕНИЕ БАЛАНСА
+# ПОПОЛНЕНИЕ
 # =========================================================
-
-def save_elder_payment(order_id, user_id, amount, pay_url, status="pending"):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT OR REPLACE INTO elder_pay_payments
-        (order_id, user_id, amount, status, credited, pay_url, created_at)
-        VALUES (?, ?, ?, ?, 0, ?, ?)
-        """,
-        (order_id, user_id, amount, status, pay_url or "", datetime.utcnow().isoformat()),
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_pending_elder_payments():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT order_id, user_id, amount, status, credited, pay_url, created_at
-        FROM elder_pay_payments
-        WHERE status = 'pending' AND credited = 0
-        """
-    )
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
-def get_elder_payment(order_id):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT order_id, user_id, amount, status, credited, pay_url, created_at
-        FROM elder_pay_payments WHERE order_id = ?
-        """,
-        (order_id,),
-    )
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-
-def mark_payment_cancelled(order_id):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("UPDATE elder_pay_payments SET status = 'cancel' WHERE order_id = ? AND credited = 0", (order_id,))
-    conn.commit()
-    conn.close()
-
-
-def credit_elder_payment_once(order_id):
-    """Атомарно начисляет баланс только один раз."""
-    conn = sqlite3.connect(DB_FILE)
-    try:
-        cur = conn.cursor()
-        cur.execute("BEGIN IMMEDIATE")
-        cur.execute(
-            "SELECT user_id, amount, credited FROM elder_pay_payments WHERE order_id = ?",
-            (order_id,),
-        )
-        row = cur.fetchone()
-        if not row:
-            conn.rollback()
-            return None
-        user_id, amount, credited = row
-        if credited:
-            conn.rollback()
-            return False
-        cur.execute(
-            "UPDATE elder_pay_payments SET status = 'paid', credited = 1 WHERE order_id = ? AND credited = 0",
-            (order_id,),
-        )
-        if cur.rowcount != 1:
-            conn.rollback()
-            return False
-        cur.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-        conn.commit()
-        return user_id, amount
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-async def elder_pay_create(user_id, amount):
-    if not ELDER_PAY_SHOP_ID or not ELDER_PAY_SHOP_KEY:
-        logger.error("ELDER PAY SHOP_ID/SHOP_KEY are not configured")
-        return None, "NOT_CONFIGURED"
-
-    payload = {
-        "method": "create",
-        "shop_id": ELDER_PAY_SHOP_ID,
-        "shop_key": ELDER_PAY_SHOP_KEY,
-        "amount": int(amount),
-        "user_id": f"telegram_{user_id}",
-    }
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(ELDER_PAY_API_URL, json=payload)
-        logger.info("ELDER PAY CREATE | status=%s | body=%s", response.status_code, response.text)
-        data = response.json()
-        if response.status_code == 200 and data.get("status") == "success" and data.get("order"):
-            return data, None
-        return None, data.get("message", f"HTTP_{response.status_code}")
-    except Exception as e:
-        logger.exception("ELDER PAY CREATE ERROR: %s", e)
-        return None, "NETWORK_ERROR"
-
-
-async def elder_pay_check(order_id):
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(ELDER_PAY_API_URL, json={"method": "check", "order": order_id})
-        logger.info("ELDER PAY CHECK | order=%s | status=%s | body=%s", order_id, response.status_code, response.text)
-        data = response.json()
-        if response.status_code == 200 and data.get("status") == "success":
-            return data.get("data", {}).get("status"), None
-        return None, data.get("message", "CHECK_ERROR")
-    except Exception as e:
-        logger.exception("ELDER PAY CHECK ERROR | order=%s | %s", order_id, e)
-        return None, "NETWORK_ERROR"
-
-
-async def process_elder_payment(order_id, context):
-    row = get_elder_payment(order_id)
-    if not row:
-        return "missing"
-    if row[4]:
-        return "already_paid"
-
-    status, error = await elder_pay_check(order_id)
-    if error:
-        return "error"
-    if status == "paid":
-        result = credit_elder_payment_once(order_id)
-        if result and result is not False:
-            user_id, amount = result
-            try:
-                await context.bot.send_message(
-                    user_id,
-                    f"✅ <b>Баланс успешно пополнен!</b>\n\n💰 Сумма: <b>{amount:,} сум</b>",
-                    parse_mode="HTML",
-                )
-                await context.bot.send_message(
-                    ADMIN_ID,
-                    f"💳 <b>Автоматическое пополнение</b>\n\n👤 ID: <code>{user_id}</code>\n💰 Сумма: <b>{amount:,} сум</b>\n📦 Order: <code>{order_id}</code>",
-                    parse_mode="HTML",
-                )
-            except Exception:
-                logger.exception("PAYMENT NOTIFICATION ERROR")
-            return "paid"
-        return "already_paid"
-    if status == "cancel":
-        mark_payment_cancelled(order_id)
-        return "cancel"
-    return "pending"
-
-
-async def promo_start(update, context):
-    query = update.callback_query
-    await query.answer()
-    if await check_ban(update):
-        return ConversationHandler.END
-    context.user_data.clear()
-    await query.message.edit_text(
-        "🎟 <b>Введите промокод</b>\n\nНапример: <code>STAR2026</code>",
-        parse_mode="HTML",
-    )
-    return PROMO_ENTER
-
-
-async def promo_enter(update, context):
-    if await check_ban(update):
-        return ConversationHandler.END
-    code = (update.message.text or "").strip()
-    if len(code) > 50 or not re.fullmatch(r"[A-Za-z0-9_-]+", code):
-        await update.message.reply_text("❌ Неверный промокод. Используйте только буквы, цифры, _ или -.")
-        return PROMO_ENTER
-    status, bonus = redeem_promo(update.effective_user.id, code)
-    messages = {
-        "success": f"🎉 <b>Промокод активирован!</b>\n\n💰 Вам начислено: <b>{bonus:,} сум</b>",
-        "not_found": "❌ Такой промокод не найден.",
-        "inactive": "❌ Этот промокод отключён.",
-        "limit": "❌ Лимит активаций этого промокода исчерпан.",
-        "already_used": "❌ Вы уже использовали этот промокод.",
-        "error": "⚠️ Не удалось активировать промокод. Попробуйте позже.",
-    }
-    await update.message.reply_text(messages.get(status, messages["error"]), parse_mode="HTML")
-    context.user_data.clear()
-    return ConversationHandler.END
-
 
 async def refill_start(update, context):
     query = update.callback_query
     await query.answer()
     context.user_data.clear()
-    await query.message.edit_text(tr(query.from_user.id, "refill_enter"))
+
+    await query.message.edit_text(
+        tr(
+            query.from_user.id,
+            "refill_enter",
+        )
+        + "\n\n🤖 Пополнение сейчас работает через CardXabar автоматически."
+    )
+
     return REFILL_AMOUNT
 
 
 async def refill_amount(update, context):
-    text = re.sub(r"[^0-9]", "", update.message.text or "")
-    if not text:
-        await update.message.reply_text("❌ Введите корректную сумму.")
+    text = update.message.text.replace(" ", "").replace("_", "")
+
+    if not text.isdigit():
+        await update.message.reply_text(
+            "❌ Введите корректную сумму цифрами. Например: 10000"
+        )
         return REFILL_AMOUNT
 
     amount = int(text)
+
+    # Для уникальной суммы нужно оставить место под суффикс 10–99.
     if amount < 1000:
-        await update.message.reply_text("❌ Минимальная сумма пополнения: 1 000 сум.")
-        return REFILL_AMOUNT
-    if amount > 10_000_000:
-        await update.message.reply_text("❌ Слишком большая сумма.")
-        return REFILL_AMOUNT
-
-    result, error = await elder_pay_create(update.effective_user.id, amount)
-    if error:
         await update.message.reply_text(
-            "❌ Не удалось создать платёж.\n\n"
-            f"Причина: <code>{escape(str(error))}</code>\n\n"
-            "Попробуйте ещё раз позже.",
-            parse_mode="HTML",
+            "❌ Минимальная сумма пополнения — 1 000 сум."
         )
-        return ConversationHandler.END
+        return REFILL_AMOUNT
 
-    order_id = result["order"]
-    pay_url = result.get("pay_url", "")
-    save_elder_payment(order_id, update.effective_user.id, amount, pay_url)
+    if amount > 9_999_900:
+        await update.message.reply_text(
+            "❌ Максимальная сумма для этого способа — 9 999 900 сум."
+        )
+        return REFILL_AMOUNT
 
-    keyboard = []
-    if pay_url:
-        keyboard.append([InlineKeyboardButton("💳 Оплатить", url=pay_url)])
-    keyboard.append([InlineKeyboardButton("🔄 Проверить оплату", callback_data=f"paycheck:{order_id}")])
-    keyboard.append([InlineKeyboardButton("❌ Отменить платёж", callback_data=f"paycancel:{order_id}")])
+    user = update.effective_user
+
+    try:
+        payment_id, payment_amount = create_cardxabar_payment(
+            user.id,
+            amount,
+        )
+    except Exception as e:
+        logger.exception("CARDXABAR PAYMENT CREATE ERROR: %s", e)
+        await update.message.reply_text(
+            "❌ Не удалось создать платёж. Попробуйте ещё раз."
+        )
+        return REFILL_AMOUNT
+
+    context.user_data["cardxabar_payment_id"] = payment_id
+    context.user_data["refill_amount"] = amount
+    context.user_data["payment_amount"] = payment_amount
 
     await update.message.reply_text(
-        "💳 <b>Платёж создан!</b>\n\n"
-        f"💰 Сумма: <b>{amount:,} сум</b>\n"
-        "⏳ Платёж действует примерно 5 минут.\n\n"
-        "После оплаты баланс будет начислен автоматически.\n"
-        "Если хотите — нажмите «Проверить оплату».",
+        tr(
+            user.id,
+            "refill_payment",
+            amount=amount,
+            payment_amount=payment_amount,
+            card=CARD_NUMBER,
+        ),
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+    logger.info(
+        "CARDXABAR PAYMENT CREATED | payment_id=%s | user_id=%s | requested=%s | payment_amount=%s",
+        payment_id,
+        user.id,
+        amount,
+        payment_amount,
+    )
+
     context.user_data.clear()
     return ConversationHandler.END
 
 
-async def elder_pay_callback(update, context):
+async def refill_check(update, context):
+
+    if not update.message.photo:
+
+        await update.message.reply_text(
+
+            tr(
+                update.effective_user.id,
+                "send_receipt",
+            )
+
+        )
+
+        return REFILL_CHECK
+
+    user = update.effective_user
+
+    amount = context.user_data.get(
+        "refill_amount",
+        0,
+    )
+
+    photo = update.message.photo[-1]
+
+    caption = (
+
+        "💳 <b>НОВОЕ ПОПОЛНЕНИЕ</b>\n\n"
+
+        f"👤 Пользователь: "
+        f"@{escape(user.username or 'нет username')}\n"
+
+        f"🆔 ID: <code>{user.id}</code>\n"
+
+        f"💰 Сумма: <b>{amount:,} сум</b>"
+
+    )
+
+    keyboard = InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+
+                "✅ Одобрить",
+
+                callback_data=(
+                    f"approve_refill_{user.id}_{amount}"
+                ),
+
+            ),
+
+            InlineKeyboardButton(
+
+                "❌ Отклонить",
+
+                callback_data=(
+                    f"reject_refill_{user.id}"
+                ),
+
+            ),
+
+        ]
+
+    ])
+
+    await context.bot.send_photo(
+
+        chat_id=ADMIN_ID,
+
+        photo=photo.file_id,
+
+        caption=caption,
+
+        parse_mode="HTML",
+
+        reply_markup=keyboard,
+
+    )
+
+    await update.message.reply_text(
+
+        tr(
+            user.id,
+            "receipt_sent",
+        )
+
+    )
+
+    context.user_data.clear()
+
+    return ConversationHandler.END
+
+
+async def payment_callback(update, context):
+
     query = update.callback_query
-    data = query.data
+
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ Нет доступа.", show_alert=True)
+        return
+
     await query.answer()
-    _, order_id = data.split(":", 1)
-    row = get_elder_payment(order_id)
-    if not row or row[1] != query.from_user.id:
-        await query.answer("❌ Этот платёж не найден.", show_alert=True)
-        return
 
-    if data.startswith("paycheck:"):
-        result = await process_elder_payment(order_id, context)
-        messages = {
-            "paid": "✅ Оплата найдена! Баланс начислен.",
-            "already_paid": "✅ Этот платёж уже зачислен.",
-            "pending": "⏳ Оплата пока не найдена. Если вы только что оплатили — подождите несколько секунд.",
-            "cancel": "❌ Этот платёж отменён.",
-            "error": "⚠️ Сейчас не удалось проверить оплату. Попробуйте ещё раз.",
-            "missing": "❌ Платёж не найден.",
-        }
-        await query.message.reply_text(messages.get(result, "⚠️ Неизвестный статус."))
-        return
+    parts = query.data.split("_")
 
-    if data.startswith("paycancel:"):
-        if not ELDER_PAY_SHOP_ID or not ELDER_PAY_SHOP_KEY:
-            await query.message.reply_text("❌ Настройки оплаты не найдены.")
-            return
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(ELDER_PAY_API_URL, json={
-                    "method": "cancel",
-                    "order": order_id,
-                    "shop_id": ELDER_PAY_SHOP_ID,
-                    "shop_key": ELDER_PAY_SHOP_KEY,
-                })
-            data_json = response.json()
-            if response.status_code == 200 and data_json.get("status") == "success":
-                mark_payment_cancelled(order_id)
-                await query.message.edit_reply_markup(reply_markup=None)
-                await query.message.reply_text("❌ Платёж отменён.")
-            else:
-                await query.message.reply_text("⚠️ Не удалось отменить платёж. Возможно, он уже оплачен.")
-        except Exception:
-            logger.exception("ELDER PAY CANCEL ERROR")
-            await query.message.reply_text("⚠️ Ошибка отмены платежа.")
+    if query.data.startswith("approve_refill_"):
 
+        user_id = int(parts[2])
+        amount = int(parts[3])
 
-async def elder_pay_watcher(application):
-    """Автоматически проверяет все активные платежи каждые 5 секунд."""
-    while True:
-        try:
-            rows = get_pending_elder_payments()
-            for row in rows:
-                order_id, user_id, amount, status, credited, pay_url, created_at = row
-                try:
-                    created = datetime.fromisoformat(created_at)
-                    if datetime.utcnow() - created > timedelta(minutes=7):
-                        continue
-                except Exception:
-                    pass
-                await process_elder_payment(order_id, application)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("ELDER PAY WATCHER ERROR")
-        await asyncio.sleep(5)
+        change_balance(user_id, amount)
 
+        await context.bot.send_message(
+            user_id,
+            (
+                "✅ <b>Баланс пополнен!</b>\n\n"
+                f"💰 Сумма: {amount:,} сум"
+            ),
+            parse_mode="HTML",
+        )
 
-async def post_init(application):
-    application.create_task(elder_pay_watcher(application))
-    logger.info("ELDER PAY WATCHER STARTED")
+        await query.edit_message_caption(
+            caption=(query.message.caption or "") + "\n\n✅ ОДОБРЕНО",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+
+    elif query.data.startswith("reject_refill_"):
+
+        user_id = int(parts[2])
+
+        await context.bot.send_message(
+            user_id,
+            "❌ Пополнение отклонено.",
+        )
+
+        await query.edit_message_caption(
+            caption=(query.message.caption or "") + "\n\n❌ ОТКЛОНЕНО",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
 
 
 # =========================================================
@@ -2471,15 +2369,6 @@ def admin_keyboard():
         [
 
             InlineKeyboardButton(
-                "🎟 Промокоды",
-                callback_data="admin_promo",
-            )
-
-        ],
-
-        [
-
-            InlineKeyboardButton(
                 "👥 Пользователи",
                 callback_data="admin_users",
             )
@@ -2593,36 +2482,6 @@ async def admin_callback(update, context):
         )
 
         return ADMIN_MESSAGE_ID
-
-
-    if data == "admin_promo":
-
-        promos = get_promos()
-        text = "🎟 <b>ПРОМОКОДЫ</b>\n\n"
-        if promos:
-            for code, bonus, max_uses, used_count, active in promos[:30]:
-                status = "🟢" if active else "🔴"
-                text += f"{status} <code>{escape(code)}</code> — {bonus:,} сум — {used_count}/{max_uses}\n"
-        else:
-            text += "Промокодов пока нет.\n"
-        await query.message.edit_text(
-            text + "\nНажмите «Создать промокод», чтобы добавить новый.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ Создать промокод", callback_data="admin_promo_create")],
-                [InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")],
-            ]),
-            parse_mode="HTML",
-        )
-        return ConversationHandler.END
-
-
-    if data == "admin_promo_create":
-
-        await query.message.edit_text(
-            "🎟 <b>Создание промокода</b>\n\nВведите код, например: <code>STAR2026</code>",
-            parse_mode="HTML",
-        )
-        return ADMIN_PROMO_CODE
 
 
     if data == "admin_users":
@@ -2819,57 +2678,6 @@ async def admin_callback(update, context):
 # =========================================================
 # АДМИН: ДОБАВИТЬ БАЛАНС
 # =========================================================
-
-async def admin_promo_code(update, context):
-    code = (update.message.text or "").strip().upper()
-    if not re.fullmatch(r"[A-Z0-9_-]{3,50}", code):
-        await update.message.reply_text("❌ Код: 3–50 символов, только A-Z, 0-9, _ или -.")
-        return ADMIN_PROMO_CODE
-    context.user_data["promo_code"] = code
-    await update.message.reply_text("💰 Введите сумму бонуса в сумах. Например: 5000")
-    return ADMIN_PROMO_BONUS
-
-
-async def admin_promo_bonus(update, context):
-    text = re.sub(r"[^0-9]", "", update.message.text or "")
-    if not text:
-        await update.message.reply_text("❌ Введите сумму цифрами.")
-        return ADMIN_PROMO_BONUS
-    bonus = int(text)
-    if bonus < 1 or bonus > 10_000_000:
-        await update.message.reply_text("❌ Бонус должен быть от 1 до 10 000 000 сум.")
-        return ADMIN_PROMO_BONUS
-    context.user_data["promo_bonus"] = bonus
-    await update.message.reply_text("👥 Сколько раз можно использовать промокод? Введите число, например 100.")
-    return ADMIN_PROMO_USES
-
-
-async def admin_promo_uses(update, context):
-    text = re.sub(r"[^0-9]", "", update.message.text or "")
-    if not text:
-        await update.message.reply_text("❌ Введите количество активаций цифрами.")
-        return ADMIN_PROMO_USES
-    uses = int(text)
-    if uses < 1 or uses > 1_000_000:
-        await update.message.reply_text("❌ Количество активаций должно быть от 1 до 1 000 000.")
-        return ADMIN_PROMO_USES
-    code = context.user_data.get("promo_code")
-    bonus = context.user_data.get("promo_bonus")
-    ok, error = create_promo(code, bonus, uses)
-    if not ok:
-        await update.message.reply_text("❌ Такой промокод уже существует." if error == "exists" else "❌ Не удалось создать промокод.")
-        context.user_data.clear()
-        return ConversationHandler.END
-    await update.message.reply_text(
-        "✅ <b>Промокод создан!</b>\n\n"
-        f"🎟 Код: <code>{escape(code)}</code>\n"
-        f"💰 Бонус: <b>{bonus:,} сум</b>\n"
-        f"👥 Активаций: <b>{uses}</b>",
-        parse_mode="HTML",
-    )
-    context.user_data.clear()
-    return ConversationHandler.END
-
 
 async def admin_add_id(update, context):
 
@@ -3241,8 +3049,6 @@ def main():
 
         .token(BOT_TOKEN)
 
-        .post_init(post_init)
-
         .build()
 
     )
@@ -3265,12 +3071,6 @@ def main():
 
             ),
 
-            # Промокод пользователя
-            CallbackQueryHandler(
-                promo_start,
-                pattern=r"^main_promo$",
-            ),
-
             CallbackQueryHandler(
                 buy_start,
                 pattern=r"^buy_.*$",
@@ -3288,7 +3088,7 @@ def main():
 
                 admin_callback,
 
-                pattern=r"^admin_(add|sub|ban|unban|message|promo_create)$",
+                pattern=r"^admin_(add|sub|ban|unban|message)$",
 
             ),
 
@@ -3305,6 +3105,26 @@ def main():
                     refill_amount,
 
                 )
+
+            ],
+
+            REFILL_CHECK: [
+
+                MessageHandler(
+
+                    filters.PHOTO,
+
+                    refill_check,
+
+                ),
+
+                MessageHandler(
+
+                    filters.ALL,
+
+                    refill_check,
+
+                ),
 
             ],
 
@@ -3402,34 +3222,6 @@ def main():
 
                 )
 
-            ],
-
-            PROMO_ENTER: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    promo_enter,
-                )
-            ],
-
-            ADMIN_PROMO_CODE: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    admin_promo_code,
-                )
-            ],
-
-            ADMIN_PROMO_BONUS: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    admin_promo_bonus,
-                )
-            ],
-
-            ADMIN_PROMO_USES: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    admin_promo_uses,
-                )
             ],
 
             ADMIN_ADD_ID: [
@@ -3621,10 +3413,15 @@ def main():
     # =====================================================
 
     application.add_handler(
+
         CallbackQueryHandler(
-            elder_pay_callback,
-            pattern=r"^(paycheck|paycancel):",
+
+            payment_callback,
+
+            pattern=r"^(approve_refill|reject_refill)_",
+
         )
+
     )
 
 
@@ -3693,3 +3490,4 @@ async def unknown_callback(update, context):
 if __name__ == "__main__":
 
     main()
+
