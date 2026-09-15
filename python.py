@@ -121,32 +121,32 @@ GIFTS = {
     2: {
         "emoji": "🎁",
         "emoji_id": "5280615440928758599",
-        "price": 6000,
-        "stars": 25,
+        "price": 4000,
+        "stars": 15,
         "name": "Подарок",
     },
 
     3: {
         "emoji": "💐",
         "emoji_id": "5280774333243873175",
-        "price": 10500,
-        "stars": 50,
+        "price": 4000,
+        "stars": 15,
         "name": "Букет",
     },
 
     4: {
         "emoji": "🚀",
         "emoji_id": "5283080528818360566",
-        "price": 10500,
-        "stars": 50,
+        "price": 6000,
+        "stars": 25,
         "name": "Ракета",
     },
 
     5: {
         "emoji": "🏆",
         "emoji_id": "5280769763398671636",
-        "price": 21000,
-        "stars": 100,
+        "price": 6000,
+        "stars": 25,
         "name": "Кубок",
     },
 
@@ -159,22 +159,30 @@ GIFTS = {
     },
 
     7: {
-        "emoji": "🌹",
+        "emoji": "💎",
         "emoji_id": "5280922999241859582",
-        "price": 6000,
-        "stars": 25,
-        "name": "Роза",
+        "price": 10500,
+        "stars": 50,
+        "name": "Алмаз",
     },
 
     8: {
-        "emoji": "💝",
+        "emoji": "🍾",
         "emoji_id": "5451905784734574339",
-        "price": 4000,
-        "stars": 15,
-        "name": "Сердце",
+        "price": 10500,
+        "stars": 50,
+        "name": "Шампанское",
     },
 
     9: {
+        "emoji": "🏆",
+        "emoji_id": "5280769763398671636",
+        "price": 21000,
+        "stars": 100,
+        "name": "Кубок",
+    },
+
+    10: {
         "emoji": "💍",
         "emoji_id": "5280651583078556009",
         "price": 21000,
@@ -182,7 +190,7 @@ GIFTS = {
         "name": "Кольцо",
     },
 
-    10: {
+    11: {
         "emoji": "💎",
         "emoji_id": "5280922999241859582",
         "price": 21000,
@@ -190,7 +198,7 @@ GIFTS = {
         "name": "Алмаз",
     },
 
-    11: {
+    12: {
         "emoji": "🍾",
         "emoji_id": "5451905784734574339",
         "price": 10500,
@@ -3257,6 +3265,12 @@ def main():
 
             ),
 
+            # Промокод пользователя
+            CallbackQueryHandler(
+                promo_start,
+                pattern=r"^main_promo$",
+            ),
+
             CallbackQueryHandler(
                 buy_start,
                 pattern=r"^buy_.*$",
@@ -3274,7 +3288,7 @@ def main():
 
                 admin_callback,
 
-                pattern=r"^admin_(add|sub|ban|unban|message)$",
+                pattern=r"^admin_(add|sub|ban|unban|message|promo_create)$",
 
             ),
 
