@@ -4,9 +4,11 @@ import uuid
 import sqlite3
 import logging
 import threading
+import json
+import hmac
 from datetime import datetime
 from html import escape
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
 
@@ -38,8 +40,11 @@ ADMIN_ID = int(os.environ["ADMIN_ID"])
 ELDER_API_KEY = os.environ["ELDER_API_KEY"]
 ELDER_API_URL = "https://elder.uz"
 
-DB_FILE = "bot_database.db"
+# Секрет для связи отдельного клиента с ботом.
 CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
+CARDXABAR_DRY_RUN = os.environ.get("CARDXABAR_DRY_RUN", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
@@ -107,39 +112,39 @@ GIFTS = {
         "emoji_id": "5397971251878732060",
         "price": 4000,
         "stars": 15,
-        "name": "Мишка-футболист",
+        "name": "Мишка",
     },
 
     2: {
-        "emoji": "🎁",
+        "emoji": "💝",
         "emoji_id": "5280615440928758599",
         "price": 4000,
         "stars": 15,
-        "name": "Подарок",
+        "name": "сердце",
     },
 
     3: {
-        "emoji": "💐",
+        "emoji": "🌹",
         "emoji_id": "5280774333243873175",
-        "price": 4000,
-        "stars": 15,
-        "name": "Букет",
+        "price": 6000,
+        "stars": 25,
+        "name": "Роза",
     },
 
     4: {
-        "emoji": "🚀",
+        "emoji": "🎁",
         "emoji_id": "5283080528818360566",
         "price": 6000,
         "stars": 25,
-        "name": "Ракета",
+        "name": "Подарок",
     },
 
     5: {
-        "emoji": "🏆",
+        "emoji": "🚀",
         "emoji_id": "5280769763398671636",
-        "price": 6000,
-        "stars": 25,
-        "name": "Кубок",
+        "price": 10500,
+        "stars": 50,
+        "name": "Ракета",
     },
 
     6: {
@@ -151,7 +156,7 @@ GIFTS = {
     },
 
     7: {
-        "emoji": "💎",
+        "emoji": "💐",
         "emoji_id": "5280922999241859582",
         "price": 10500,
         "stars": 50,
@@ -188,14 +193,6 @@ GIFTS = {
         "price": 21000,
         "stars": 100,
         "name": "Алмаз",
-    },
-
-    12: {
-        "emoji": "🍾",
-        "emoji_id": "5451905784734574339",
-        "price": 10500,
-        "stars": 50,
-        "name": "Шампанское",
     },
 
 }
@@ -278,13 +275,12 @@ TEXTS = {
             "Переведите <b>точно эту сумму</b> на карту:\n"
             "<code>{card}</code>\n\n"
             "После перевода чек отправлять не нужно.\n"
-            "🤖 Платёж будет найден автоматически через CardXabar.\n\n"
-            "🧪 <i>Сейчас включён тестовый режим: после обнаружения перевода баланс пока НЕ изменяется.</i>"
+            "⏳ После поступления перевода баланс будет пополнен автоматически."
         ),
 
-        "receipt_sent": "⏳ Чек отправлен администратору.",
+        "receipt_sent": "⏳ Заявка отправлена администратору.",
 
-        "send_receipt": "❌ Отправьте фото чека.",
+        "send_receipt": "❌ Отправьте подтверждение оплаты.",
 
         "gift_send_type": (
             "🎁 <b>Как отправить подарок?</b>"
@@ -382,13 +378,12 @@ TEXTS = {
             "Kartaga <b>aynan shu summani</b> o'tkazing:\n"
             "<code>{card}</code>\n\n"
             "To'lovdan keyin chek yuborish shart emas.\n"
-            "🤖 To'lov CardXabar orqali avtomatik topiladi.\n\n"
-            "🧪 <i>Hozir test rejimi: to'lov topilganda balans hali o'zgarmaydi.</i>"
+            "⏳ To'lov kelgach, balans avtomatik to'ldiriladi."
         ),
 
-        "receipt_sent": "⏳ Chek administratorga yuborildi.",
+        "receipt_sent": "⏳ So'rov administratorga yuborildi.",
 
-        "send_receipt": "❌ Chek rasmini yuboring.",
+        "send_receipt": "❌ To'lov tasdig'ini yuboring.",
 
         "gift_send_type": (
             "🎁 <b>Sovg'ani qanday yuborish?</b>"
@@ -426,7 +421,7 @@ TEXTS = {
 
 def init_db():
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -474,7 +469,7 @@ def get_user(
     name=""
 ):
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -548,7 +543,7 @@ def get_user(
 
 def set_language(user_id, lang):
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -567,7 +562,7 @@ def set_language(user_id, lang):
 
 def change_balance(user_id, amount):
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -586,7 +581,7 @@ def change_balance(user_id, amount):
 
 def set_ban(user_id, value):
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -605,7 +600,7 @@ def set_ban(user_id, value):
 
 def get_users():
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -627,9 +622,9 @@ def get_users():
 def create_cardxabar_payment(user_id, requested_amount):
     """Создаёт уникальную сумму для перевода через CardXabar."""
     if requested_amount < 1000 or requested_amount > 9_999_900:
-        raise ValueError("Сумма для CardXabar должна быть от 1000 до 9 999 900 сум.")
+        raise ValueError("Сумма должна быть от 1000 до 9 999 900 сум.")
 
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
     try:
@@ -661,13 +656,13 @@ def create_cardxabar_payment(user_id, requested_amount):
                 conn.rollback()
                 continue
 
-        raise RuntimeError("Не удалось создать уникальную сумму CardXabar.")
+        raise RuntimeError("Не удалось создать уникальную сумму платежа.")
     finally:
         conn.close()
 
 
 def get_cardxabar_payment(payment_amount):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
     cursor.execute(
         """
@@ -686,7 +681,7 @@ def get_cardxabar_payment(payment_amount):
 
 def mark_cardxabar_test_transaction(fingerprint, payment_amount, raw_text):
     """Записывает найденную транзакцию. Баланс НЕ меняет."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -769,549 +764,231 @@ async def check_ban(update):
 # RENDER WEB SERVER
 # =========================================================
 
+def send_json(handler, status, payload):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def notify_user_balance(user_id, credited_amount):
+    """Отправляет пользователю уведомление после успешного пополнения."""
+    try:
+        user = get_user(user_id)
+        lang = user.get("lang", "ru")
+        if lang == "uz":
+            text = (
+                "✅ <b>Balans muvaffaqiyatli to'ldirildi!</b>\n\n"
+                f"💰 Qo'shildi: <b>{credited_amount:,} so'm</b>\n"
+                f"💳 Joriy balans: <b>{user['balance']:,} so'm</b>"
+            )
+        else:
+            text = (
+                "✅ <b>Баланс успешно пополнен!</b>\n\n"
+                f"💰 Зачислено: <b>{credited_amount:,} сум</b>\n"
+                f"💳 Текущий баланс: <b>{user['balance']:,} сум</b>"
+            )
+
+        response = httpx.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": user_id,
+                "text": text,
+                "parse_mode": "HTML",
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+    except Exception:
+        logger.exception("BALANCE NOTIFICATION ERROR | user_id=%s", user_id)
+
+
 class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+        if self.path != "/":
+            send_json(self, 404, {"ok": False, "error": "Not found"})
+            return
 
         self.send_response(200)
-
-        self.send_header(
-            "Content-type",
-            "text/html; charset=utf-8",
-        )
-
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.end_headers()
-
-        self.wfile.write(
-            b"Bot is running!"
-        )
+        self.wfile.write(b"Bot is running!")
 
     def do_POST(self):
-
         if self.path != "/cardxabar":
-
-            self.send_json(
-                404,
-                {
-                    "success": False,
-                    "error": "Not found",
-                }
-            )
-
+            send_json(self, 404, {"ok": False, "error": "Not found"})
             return
 
-        # ---------------------------------------------
-        # ПРОВЕРКА API-КЛЮЧА
-        # ---------------------------------------------
-
-        received_key = self.headers.get(
-            "X-CardXabar-Key",
-            "",
-        )
-
-        if received_key != CARDXABAR_API_KEY:
-
-            self.send_json(
-                401,
-                {
-                    "success": False,
-                    "error": "Unauthorized",
-                }
-            )
-
+        supplied_key = self.headers.get("X-CardXabar-Key", "")
+        if not supplied_key or not hmac.compare_digest(supplied_key, CARDXABAR_API_KEY):
+            send_json(self, 401, {"ok": False, "error": "Unauthorized"})
             return
-
-        # ---------------------------------------------
-        # ЧИТАЕМ JSON
-        # ---------------------------------------------
 
         try:
-
-            content_length = int(
-                self.headers.get(
-                    "Content-Length",
-                    "0",
-                )
-            )
-
-            body = self.rfile.read(
-                content_length
-            )
-
-            import json
-
-            data = json.loads(
-                body.decode("utf-8")
-            )
-
-        except Exception as e:
-
-            logger.exception(
-                "CARDXABAR API JSON ERROR: %s",
-                e,
-            )
-
-            self.send_json(
-                400,
-                {
-                    "success": False,
-                    "error": "Invalid JSON",
-                }
-            )
-
-            return
-
-        # ---------------------------------------------
-        # ПОЛУЧАЕМ ДАННЫЕ
-        # ---------------------------------------------
-
-        try:
-
-            payment_amount = int(
-                data["payment_amount"]
-            )
-
-            fingerprint = str(
-                data["fingerprint"]
-            )
-
-            raw_text = str(
-                data.get(
-                    "raw_text",
-                    "",
-                )
-            )
-
-            dry_run = bool(
-                data.get(
-                    "dry_run",
-                    True,
-                )
-            )
-
-        except Exception as e:
-
-            self.send_json(
-                400,
-                {
-                    "success": False,
-                    "error": "Invalid parameters",
-                }
-            )
-
-            return
-
-        logger.info(
-            "CARDXABAR API REQUEST | amount=%s | dry_run=%s",
-            payment_amount,
-            dry_run,
-        )
-
-        # ---------------------------------------------
-        # ПРОВЕРКА / ЗАЧИСЛЕНИЕ
-        # ---------------------------------------------
-
-        conn = sqlite3.connect(
-            DB_FILE,
-            timeout=30,
-        )
-
-        try:
-
-            cursor = conn.cursor()
-
-            # -----------------------------------------
-            # Если такой перевод уже обработан
-            # -----------------------------------------
-
-            cursor.execute(
-                """
-                SELECT
-                    payment_amount
-                FROM cardxabar_transactions
-                WHERE fingerprint = ?
-                LIMIT 1
-                """,
-                (fingerprint,),
-            )
-
-            existing_transaction = cursor.fetchone()
-
-            if existing_transaction:
-
-                self.send_json(
-                    200,
-                    {
-                        "success": True,
-                        "duplicate": True,
-                        "message": "Transaction already processed",
-                    }
-                )
-
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > 256_000:
+                send_json(self, 400, {"ok": False, "error": "Invalid request size"})
                 return
 
-            # -----------------------------------------
-            # Ищем ожидающий платёж
-            # -----------------------------------------
+            raw_body = self.rfile.read(content_length)
+            payload = json.loads(raw_body.decode("utf-8"))
 
-            cursor.execute(
+            payment_amount = int(payload.get("payment_amount", 0))
+            fingerprint = str(payload.get("fingerprint", "")).strip()
+            raw_text = str(payload.get("raw_text", ""))[:10000]
+
+            if payment_amount <= 0:
+                send_json(self, 400, {"ok": False, "error": "Invalid amount"})
+                return
+
+            if not fingerprint or len(fingerprint) > 128:
+                send_json(self, 400, {"ok": False, "error": "Invalid fingerprint"})
+                return
+
+        except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
+            send_json(self, 400, {"ok": False, "error": "Invalid JSON"})
+            return
+
+        conn = sqlite3.connect(DB_FILE, timeout=20)
+        conn.row_factory = sqlite3.Row
+
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+
+            duplicate = conn.execute(
+                "SELECT 1 FROM cardxabar_transactions WHERE fingerprint = ? LIMIT 1",
+                (fingerprint,),
+            ).fetchone()
+
+            if duplicate:
+                conn.commit()
+                send_json(self, 200, {"ok": True, "status": "duplicate"})
+                return
+
+            payment = conn.execute(
                 """
-                SELECT
-                    payment_id,
-                    user_id,
-                    requested_amount,
-                    payment_amount,
-                    status,
-                    created_at
+                SELECT payment_id, user_id, requested_amount, payment_amount, status, created_at
                 FROM cardxabar_payments
                 WHERE payment_amount = ?
                   AND status = 'pending'
+                  AND datetime(created_at) >= datetime('now', '-60 minutes')
                 ORDER BY created_at ASC
                 LIMIT 1
                 """,
                 (payment_amount,),
-            )
+            ).fetchone()
 
-            payment = cursor.fetchone()
-
-            if payment is None:
-
-                logger.warning(
-                    "CARDXABAR PAYMENT NOT FOUND | amount=%s",
-                    payment_amount,
-                )
-
-                self.send_json(
-                    200,
-                    {
-                        "success": False,
-                        "found": False,
-                        "error": "Payment not found",
-                    }
-                )
-
-                return
-
-            (
-                payment_id,
-                user_id,
-                requested_amount,
-                unique_payment_amount,
-                status,
-                created_at,
-            ) = payment
-
-            logger.info(
-                "CARDXABAR PAYMENT FOUND | "
-                "payment_id=%s | user_id=%s | "
-                "requested=%s | payment_amount=%s",
-                payment_id,
-                user_id,
-                requested_amount,
-                unique_payment_amount,
-            )
-
-            # -----------------------------------------
-            # ТЕСТОВЫЙ РЕЖИМ
-            # -----------------------------------------
-
-            if dry_run:
-
-                self.send_json(
-                    200,
-                    {
-                        "success": True,
-                        "found": True,
-                        "dry_run": True,
-                        "payment_id": payment_id,
-                        "user_id": user_id,
-                        "requested_amount": requested_amount,
-                        "payment_amount": unique_payment_amount,
-                        "message": "Payment found. Balance was NOT changed.",
-                    }
-                )
-
-                return
-
-            # -----------------------------------------
-            # НАСТОЯЩЕЕ ЗАЧИСЛЕНИЕ
-            # -----------------------------------------
-
-            conn.execute("BEGIN IMMEDIATE")
-
-            # Повторно проверяем статус внутри транзакции.
-            cursor.execute(
-                """
-                SELECT
-                    user_id,
-                    requested_amount,
-                    status
-                FROM cardxabar_payments
-                WHERE payment_id = ?
-                LIMIT 1
-                """,
-                (payment_id,),
-            )
-
-            current_payment = cursor.fetchone()
-
-            if current_payment is None:
-
+            if not payment:
                 conn.rollback()
-
-                self.send_json(
-                    200,
-                    {
-                        "success": False,
-                        "error": "Payment disappeared",
-                    }
-                )
-
+                send_json(self, 404, {"ok": True, "status": "payment_not_found"})
                 return
 
-            current_user_id, current_requested_amount, current_status = current_payment
+            user = conn.execute(
+                "SELECT user_id, balance FROM users WHERE user_id = ?",
+                (payment["user_id"],),
+            ).fetchone()
 
-            if current_status != "pending":
-
+            if not user:
                 conn.rollback()
-
-                self.send_json(
-                    200,
-                    {
-                        "success": True,
-                        "duplicate": True,
-                        "message": "Payment already processed",
-                    }
-                )
-
+                send_json(self, 404, {"ok": False, "error": "User not found"})
                 return
 
-            # -----------------------------------------
-            # Проверяем пользователя
-            # -----------------------------------------
-
-            cursor.execute(
-                """
-                SELECT user_id
-                FROM users
-                WHERE user_id = ?
-                LIMIT 1
-                """,
-                (current_user_id,),
-            )
-
-            user_exists = cursor.fetchone()
-
-            if user_exists is None:
-
+            if CARDXABAR_DRY_RUN:
                 conn.rollback()
-
-                self.send_json(
+                send_json(
+                    self,
                     200,
                     {
-                        "success": False,
-                        "error": "User not found",
-                    }
+                        "ok": True,
+                        "status": "found",
+                        "payment_id": payment["payment_id"],
+                        "user_id": payment["user_id"],
+                        "requested_amount": payment["requested_amount"],
+                        "payment_amount": payment["payment_amount"],
+                    },
                 )
-
                 return
 
-            # -----------------------------------------
-            # Записываем транзакцию
-            # -----------------------------------------
-
-            cursor.execute(
+            conn.execute(
                 """
                 INSERT INTO cardxabar_transactions
-                (
-                    fingerprint,
-                    payment_amount,
-                    raw_text,
-                    created_at
-                )
+                (fingerprint, payment_amount, raw_text, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
                 (
                     fingerprint,
                     payment_amount,
                     raw_text,
-                    datetime.now().isoformat(
-                        timespec="seconds"
-                    ),
+                    datetime.now().isoformat(timespec="seconds"),
                 ),
             )
 
-            # -----------------------------------------
-            # Начисляем баланс
-            # -----------------------------------------
-
-            cursor.execute(
+            conn.execute(
                 """
                 UPDATE users
                 SET balance = balance + ?
                 WHERE user_id = ?
                 """,
-                (
-                    current_requested_amount,
-                    current_user_id,
-                ),
+                (payment["requested_amount"], payment["user_id"]),
             )
 
-            # -----------------------------------------
-            # Помечаем платёж как оплаченный
-            # -----------------------------------------
-
-            cursor.execute(
+            conn.execute(
                 """
                 UPDATE cardxabar_payments
                 SET status = 'paid'
-                WHERE payment_id = ?
-                  AND status = 'pending'
+                WHERE payment_id = ? AND status = 'pending'
                 """,
-                (payment_id,),
+                (payment["payment_id"],),
             )
 
-            if cursor.rowcount != 1:
-
-                conn.rollback()
-
-                self.send_json(
-                    200,
-                    {
-                        "success": False,
-                        "error": "Payment status update failed",
-                    }
-                )
-
-                return
+            new_balance = conn.execute(
+                "SELECT balance FROM users WHERE user_id = ?",
+                (payment["user_id"],),
+            ).fetchone()["balance"]
 
             conn.commit()
 
-            logger.info(
-                "CARDXABAR PAYMENT SUCCESS | "
-                "payment_id=%s | user_id=%s | "
-                "credited=%s | payment_amount=%s",
-                payment_id,
-                current_user_id,
-                current_requested_amount,
-                payment_amount,
-            )
+            user_id = payment["user_id"]
+            credited_amount = payment["requested_amount"]
 
-            self.send_json(
+            send_json(
+                self,
                 200,
                 {
-                    "success": True,
-                    "found": True,
-                    "credited": True,
-                    "payment_id": payment_id,
-                    "user_id": current_user_id,
-                    "requested_amount": current_requested_amount,
-                    "payment_amount": payment_amount,
-                }
+                    "ok": True,
+                    "status": "credited",
+                    "payment_id": payment["payment_id"],
+                    "user_id": user_id,
+                    "credited_amount": credited_amount,
+                    "balance": new_balance,
+                },
             )
 
-        except sqlite3.IntegrityError as e:
-
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-
-            logger.exception(
-                "CARDXABAR SQLITE INTEGRITY ERROR: %s",
-                e,
-            )
-
-            self.send_json(
-                500,
-                {
-                    "success": False,
-                    "error": "Database integrity error",
-                }
-            )
-
-        except Exception as e:
-
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-
-            logger.exception(
-                "CARDXABAR API ERROR: %s",
-                e,
-            )
-
-            self.send_json(
-                500,
-                {
-                    "success": False,
-                    "error": "Internal server error",
-                }
-            )
-
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            send_json(self, 200, {"ok": True, "status": "duplicate"})
+        except Exception:
+            conn.rollback()
+            logger.exception("PAYMENT PROCESSING ERROR")
+            send_json(self, 500, {"ok": False, "error": "Internal server error"})
         finally:
-
             conn.close()
 
-    def send_json(
-        self,
-        status_code,
-        data,
-    ):
+        # Уведомление отправляется только после успешного commit.
+        if not CARDXABAR_DRY_RUN and 'user_id' in locals() and 'credited_amount' in locals():
+            notify_user_balance(user_id, credited_amount)
 
-        import json
-
-        response = json.dumps(
-            data,
-            ensure_ascii=False,
-        ).encode("utf-8")
-
-        self.send_response(
-            status_code
-        )
-
-        self.send_header(
-            "Content-Type",
-            "application/json; charset=utf-8",
-        )
-
-        self.send_header(
-            "Content-Length",
-            str(len(response)),
-        )
-
-        self.end_headers()
-
-        self.wfile.write(
-            response
-        )
-
-    def log_message(
-        self,
-        format,
-        *args,
-    ):
-
+    def log_message(self, format, *args):
         return
 
+
 def run_web():
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            8080,
-        )
-    )
-
-    server = HTTPServer(
-        (
-            "0.0.0.0",
-            port,
-        ),
-        Handler,
-    )
-
+    port = int(os.environ.get("PORT", 8080))
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    logger.info("WEB SERVER STARTED ON PORT %s", port)
     server.serve_forever()
 
 
@@ -2185,7 +1862,6 @@ async def refill_start(update, context):
             query.from_user.id,
             "refill_enter",
         )
-        + "\n\n🤖 Пополнение сейчас работает автоматически примерно 15-30 секунд."
     )
 
     return REFILL_AMOUNT
