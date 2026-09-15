@@ -38,7 +38,7 @@ ADMIN_ID = int(os.environ["ADMIN_ID"])
 ELDER_API_KEY = os.environ["ELDER_API_KEY"]
 ELDER_API_URL = "https://elder.uz"
 
-DB_FILE = "bot_database.db"
+DB_FILE = r"C:\Users\user\PycharmProjects\PythonProject1\bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
