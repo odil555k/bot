@@ -1680,7 +1680,7 @@ async def refill_start(update, context):
             query.from_user.id,
             "refill_enter",
         )
-        + "\n\n🤖 Пополнение сейчас работает через CardXabar автоматически."
+        + "\n\n🤖 Пополнение сейчас работает автоматически примерно 15-30 секунд."
     )
 
     return REFILL_AMOUNT
