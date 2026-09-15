@@ -38,7 +38,8 @@ ADMIN_ID = int(os.environ["ADMIN_ID"])
 ELDER_API_KEY = os.environ["ELDER_API_KEY"]
 ELDER_API_URL = "https://elder.uz"
 
-DB_FILE = r"C:\Users\user\PycharmProjects\PythonProject1\bot_database.db"
+DB_FILE = "bot_database.db"
+CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
@@ -776,7 +777,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_header(
             "Content-type",
-            "text/html",
+            "text/html; charset=utf-8",
         )
 
         self.end_headers()
@@ -785,10 +786,514 @@ class Handler(BaseHTTPRequestHandler):
             b"Bot is running!"
         )
 
-    def log_message(self, format, *args):
+    def do_POST(self):
+
+        if self.path != "/cardxabar":
+
+            self.send_json(
+                404,
+                {
+                    "success": False,
+                    "error": "Not found",
+                }
+            )
+
+            return
+
+        # ---------------------------------------------
+        # ПРОВЕРКА API-КЛЮЧА
+        # ---------------------------------------------
+
+        received_key = self.headers.get(
+            "X-CardXabar-Key",
+            "",
+        )
+
+        if received_key != CARDXABAR_API_KEY:
+
+            self.send_json(
+                401,
+                {
+                    "success": False,
+                    "error": "Unauthorized",
+                }
+            )
+
+            return
+
+        # ---------------------------------------------
+        # ЧИТАЕМ JSON
+        # ---------------------------------------------
+
+        try:
+
+            content_length = int(
+                self.headers.get(
+                    "Content-Length",
+                    "0",
+                )
+            )
+
+            body = self.rfile.read(
+                content_length
+            )
+
+            import json
+
+            data = json.loads(
+                body.decode("utf-8")
+            )
+
+        except Exception as e:
+
+            logger.exception(
+                "CARDXABAR API JSON ERROR: %s",
+                e,
+            )
+
+            self.send_json(
+                400,
+                {
+                    "success": False,
+                    "error": "Invalid JSON",
+                }
+            )
+
+            return
+
+        # ---------------------------------------------
+        # ПОЛУЧАЕМ ДАННЫЕ
+        # ---------------------------------------------
+
+        try:
+
+            payment_amount = int(
+                data["payment_amount"]
+            )
+
+            fingerprint = str(
+                data["fingerprint"]
+            )
+
+            raw_text = str(
+                data.get(
+                    "raw_text",
+                    "",
+                )
+            )
+
+            dry_run = bool(
+                data.get(
+                    "dry_run",
+                    True,
+                )
+            )
+
+        except Exception as e:
+
+            self.send_json(
+                400,
+                {
+                    "success": False,
+                    "error": "Invalid parameters",
+                }
+            )
+
+            return
+
+        logger.info(
+            "CARDXABAR API REQUEST | amount=%s | dry_run=%s",
+            payment_amount,
+            dry_run,
+        )
+
+        # ---------------------------------------------
+        # ПРОВЕРКА / ЗАЧИСЛЕНИЕ
+        # ---------------------------------------------
+
+        conn = sqlite3.connect(
+            DB_FILE,
+            timeout=30,
+        )
+
+        try:
+
+            cursor = conn.cursor()
+
+            # -----------------------------------------
+            # Если такой перевод уже обработан
+            # -----------------------------------------
+
+            cursor.execute(
+                """
+                SELECT
+                    payment_amount
+                FROM cardxabar_transactions
+                WHERE fingerprint = ?
+                LIMIT 1
+                """,
+                (fingerprint,),
+            )
+
+            existing_transaction = cursor.fetchone()
+
+            if existing_transaction:
+
+                self.send_json(
+                    200,
+                    {
+                        "success": True,
+                        "duplicate": True,
+                        "message": "Transaction already processed",
+                    }
+                )
+
+                return
+
+            # -----------------------------------------
+            # Ищем ожидающий платёж
+            # -----------------------------------------
+
+            cursor.execute(
+                """
+                SELECT
+                    payment_id,
+                    user_id,
+                    requested_amount,
+                    payment_amount,
+                    status,
+                    created_at
+                FROM cardxabar_payments
+                WHERE payment_amount = ?
+                  AND status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (payment_amount,),
+            )
+
+            payment = cursor.fetchone()
+
+            if payment is None:
+
+                logger.warning(
+                    "CARDXABAR PAYMENT NOT FOUND | amount=%s",
+                    payment_amount,
+                )
+
+                self.send_json(
+                    200,
+                    {
+                        "success": False,
+                        "found": False,
+                        "error": "Payment not found",
+                    }
+                )
+
+                return
+
+            (
+                payment_id,
+                user_id,
+                requested_amount,
+                unique_payment_amount,
+                status,
+                created_at,
+            ) = payment
+
+            logger.info(
+                "CARDXABAR PAYMENT FOUND | "
+                "payment_id=%s | user_id=%s | "
+                "requested=%s | payment_amount=%s",
+                payment_id,
+                user_id,
+                requested_amount,
+                unique_payment_amount,
+            )
+
+            # -----------------------------------------
+            # ТЕСТОВЫЙ РЕЖИМ
+            # -----------------------------------------
+
+            if dry_run:
+
+                self.send_json(
+                    200,
+                    {
+                        "success": True,
+                        "found": True,
+                        "dry_run": True,
+                        "payment_id": payment_id,
+                        "user_id": user_id,
+                        "requested_amount": requested_amount,
+                        "payment_amount": unique_payment_amount,
+                        "message": "Payment found. Balance was NOT changed.",
+                    }
+                )
+
+                return
+
+            # -----------------------------------------
+            # НАСТОЯЩЕЕ ЗАЧИСЛЕНИЕ
+            # -----------------------------------------
+
+            conn.execute("BEGIN IMMEDIATE")
+
+            # Повторно проверяем статус внутри транзакции.
+            cursor.execute(
+                """
+                SELECT
+                    user_id,
+                    requested_amount,
+                    status
+                FROM cardxabar_payments
+                WHERE payment_id = ?
+                LIMIT 1
+                """,
+                (payment_id,),
+            )
+
+            current_payment = cursor.fetchone()
+
+            if current_payment is None:
+
+                conn.rollback()
+
+                self.send_json(
+                    200,
+                    {
+                        "success": False,
+                        "error": "Payment disappeared",
+                    }
+                )
+
+                return
+
+            current_user_id, current_requested_amount, current_status = current_payment
+
+            if current_status != "pending":
+
+                conn.rollback()
+
+                self.send_json(
+                    200,
+                    {
+                        "success": True,
+                        "duplicate": True,
+                        "message": "Payment already processed",
+                    }
+                )
+
+                return
+
+            # -----------------------------------------
+            # Проверяем пользователя
+            # -----------------------------------------
+
+            cursor.execute(
+                """
+                SELECT user_id
+                FROM users
+                WHERE user_id = ?
+                LIMIT 1
+                """,
+                (current_user_id,),
+            )
+
+            user_exists = cursor.fetchone()
+
+            if user_exists is None:
+
+                conn.rollback()
+
+                self.send_json(
+                    200,
+                    {
+                        "success": False,
+                        "error": "User not found",
+                    }
+                )
+
+                return
+
+            # -----------------------------------------
+            # Записываем транзакцию
+            # -----------------------------------------
+
+            cursor.execute(
+                """
+                INSERT INTO cardxabar_transactions
+                (
+                    fingerprint,
+                    payment_amount,
+                    raw_text,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    fingerprint,
+                    payment_amount,
+                    raw_text,
+                    datetime.now().isoformat(
+                        timespec="seconds"
+                    ),
+                ),
+            )
+
+            # -----------------------------------------
+            # Начисляем баланс
+            # -----------------------------------------
+
+            cursor.execute(
+                """
+                UPDATE users
+                SET balance = balance + ?
+                WHERE user_id = ?
+                """,
+                (
+                    current_requested_amount,
+                    current_user_id,
+                ),
+            )
+
+            # -----------------------------------------
+            # Помечаем платёж как оплаченный
+            # -----------------------------------------
+
+            cursor.execute(
+                """
+                UPDATE cardxabar_payments
+                SET status = 'paid'
+                WHERE payment_id = ?
+                  AND status = 'pending'
+                """,
+                (payment_id,),
+            )
+
+            if cursor.rowcount != 1:
+
+                conn.rollback()
+
+                self.send_json(
+                    200,
+                    {
+                        "success": False,
+                        "error": "Payment status update failed",
+                    }
+                )
+
+                return
+
+            conn.commit()
+
+            logger.info(
+                "CARDXABAR PAYMENT SUCCESS | "
+                "payment_id=%s | user_id=%s | "
+                "credited=%s | payment_amount=%s",
+                payment_id,
+                current_user_id,
+                current_requested_amount,
+                payment_amount,
+            )
+
+            self.send_json(
+                200,
+                {
+                    "success": True,
+                    "found": True,
+                    "credited": True,
+                    "payment_id": payment_id,
+                    "user_id": current_user_id,
+                    "requested_amount": current_requested_amount,
+                    "payment_amount": payment_amount,
+                }
+            )
+
+        except sqlite3.IntegrityError as e:
+
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+            logger.exception(
+                "CARDXABAR SQLITE INTEGRITY ERROR: %s",
+                e,
+            )
+
+            self.send_json(
+                500,
+                {
+                    "success": False,
+                    "error": "Database integrity error",
+                }
+            )
+
+        except Exception as e:
+
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+            logger.exception(
+                "CARDXABAR API ERROR: %s",
+                e,
+            )
+
+            self.send_json(
+                500,
+                {
+                    "success": False,
+                    "error": "Internal server error",
+                }
+            )
+
+        finally:
+
+            conn.close()
+
+    def send_json(
+        self,
+        status_code,
+        data,
+    ):
+
+        import json
+
+        response = json.dumps(
+            data,
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        self.send_response(
+            status_code
+        )
+
+        self.send_header(
+            "Content-Type",
+            "application/json; charset=utf-8",
+        )
+
+        self.send_header(
+            "Content-Length",
+            str(len(response)),
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            response
+        )
+
+    def log_message(
+        self,
+        format,
+        *args,
+    ):
 
         return
-
 
 def run_web():
 
