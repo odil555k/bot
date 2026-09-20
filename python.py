@@ -1529,6 +1529,12 @@ async def main_buttons(update, context):
             )
             return
 
+        # Сортируем страны по цене продажи: от самой дешёвой к самой дорогой.
+        countries = sorted(
+            countries,
+            key=lambda item: number_sale_price(int(item.get("price_uzs") or 0)),
+        )
+
         keyboard=[]
         for item in countries[:60]:
             code=str(item.get("country_code") or "").upper()
