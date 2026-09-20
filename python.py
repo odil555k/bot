@@ -6,6 +6,7 @@ import logging
 import threading
 import json
 import hmac
+import math
 from datetime import datetime
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -64,6 +65,25 @@ PREMIUM_PRICES = {
     6: 222000,
     12: 406000,
 }
+
+# Наценка на номера: 30% прибыли от конечной цены.
+# То есть если API/Batu берет 2000 сум, пользователь платит 2000 / 0.70.
+NUMBER_PROFIT_PERCENT = 30
+
+def number_sale_price(cost_uzs):
+    """Цена для пользователя так, чтобы прибыль составляла 30% от продажи."""
+    cost = int(cost_uzs)
+    if cost <= 0:
+        return 0
+    return math.ceil(cost * 100 / (100 - NUMBER_PROFIT_PERCENT))
+
+
+def country_flag(country_code):
+    """Возвращает emoji-флаг по ISO-коду страны, например CA -> 🇨🇦."""
+    code = str(country_code or "").strip().upper()
+    if len(code) != 2 or not code.isalpha():
+        return "🌍"
+    return "".join(chr(ord("🇦") + ord(ch) - ord("A")) for ch in code)
 
 
 # =========================================================
@@ -1500,10 +1520,19 @@ async def main_buttons(update, context):
         for item in countries[:40]:
             code=str(item.get("code","")).upper()
             name=str(item.get("name",code))
-            price=int(item.get("price_uzs",0))
-            if not code or price<=0:
+            cost=int(item.get("price_uzs",0))
+            sale_price=number_sale_price(cost)
+            if not code or cost<=0 or sale_price<=0:
                 continue
-            keyboard.append([InlineKeyboardButton(f"🌍 {name} — {price:,} сум",callback_data=f"number_country_{code}")])
+
+            flag=country_flag(code)
+
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{flag} {name} — {sale_price:,} сум",
+                    callback_data=f"number_country_{code}",
+                )
+            ])
         keyboard.append([InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")])
         keyboard.append([InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")])
         await query.message.edit_text(tr(user.id,"numbers"),reply_markup=InlineKeyboardMarkup(keyboard),parse_mode="HTML")
@@ -3273,7 +3302,10 @@ async def number_callback(update, context):
         for order in orders:
             phone=order.get("phone") or "номер не указан"
             status_text="✅ SMS готов" if order.get("status")=="finished" else "⏳ Ожидание SMS"
-            text+=(f"🌍 {escape(order.get('country_name') or order.get('country_code') or '')}\n"
+            country_code=str(order.get("country_code") or "").upper()
+            country_name=escape(order.get('country_name') or country_code)
+            flag=country_flag(country_code)
+            text+=(f"{flag} {country_name}\n"
                     f"📞 <code>{escape(phone)}</code>\n{status_text}\n"
                     f"🆔 <code>{escape(order['order_id'])}</code>\n\n")
             keyboard.append([InlineKeyboardButton(f"📩 Проверить SMS — {phone}",callback_data=f"number_code_{order['order_id']}")])
@@ -3293,13 +3325,26 @@ async def number_callback(update, context):
         if not country:
             await query.message.edit_text("❌ Эта страна больше недоступна.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Обновить список",callback_data="shop_numbers")]]))
             return
-        price=int(country.get("price_uzs",0))
+        api_cost=int(country.get("price_uzs",0))
         country_name=str(country.get("name") or country_code)
-        if price<=0:
+        sale_price=number_sale_price(api_cost)
+
+        if api_cost<=0 or sale_price<=0:
             await query.message.edit_text("❌ API не вернул цену для этой страны.")
             return
-        if user_data["balance"]<price:
-            await query.message.edit_text(tr(user.id,"not_enough",price=price,balance=user_data["balance"]),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Назад к номерам",callback_data="shop_numbers")]]))
+
+        if user_data["balance"]<sale_price:
+            await query.message.edit_text(
+                tr(
+                    user.id,
+                    "not_enough",
+                    price=sale_price,
+                    balance=user_data["balance"],
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📱 Назад к номерам",callback_data="shop_numbers")]
+                ]),
+            )
             return
         await query.message.edit_text(tr(user.id,"number_buying"))
         idem_key=f"number-{user.id}-{country_code}-{query.message.message_id}"
@@ -3310,30 +3355,81 @@ async def number_callback(update, context):
         api_result=buy_result.get("result") or {}
         order_id=str(api_result.get("order_id") or "")
         phone=str(api_result.get("phone") or "")
-        actual_price=int(api_result.get("cost_uzs") or price)
+        actual_cost=int(api_result.get("cost_uzs") or api_cost)
+        actual_sale_price=number_sale_price(actual_cost)
         actual_country_name=str(api_result.get("country_name") or country_name)
         if not order_id:
             await query.message.edit_text("❌ API не вернул order_id.")
             return
-        change_balance(user.id,-actual_price)
-        save_number_order(order_id,user.id,country_code,actual_country_name,phone,actual_price,"waiting")
+
+        # На момент покупки показываем/списываем цену с нашей наценкой 30%.
+        # API/Batu получает свою себестоимость actual_cost, разница остается у магазина.
+        if user_data["balance"]<actual_sale_price:
+            logger.error(
+                "NUMBER PRICE CHANGED AFTER API BUY | user_id=%s | country=%s | balance=%s | sale_price=%s | api_cost=%s",
+                user.id,
+                country_code,
+                user_data["balance"],
+                actual_sale_price,
+                actual_cost,
+            )
+            await query.message.edit_text(
+                "❌ Цена номера изменилась. Заказ выполнен API, но баланса пользователя недостаточно для списания. "
+                "Свяжитесь с администратором.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")]
+                ]),
+            )
+            return
+
+        change_balance(user.id,-actual_sale_price)
+        save_number_order(
+            order_id,
+            user.id,
+            country_code,
+            actual_country_name,
+            phone,
+            actual_sale_price,
+            "waiting",
+        )
+
         try:
-            await context.bot.send_message(ADMIN_ID,
-                ("📱 <b>НОВЫЙ ЗАКАЗ НОМЕРА</b>\n\n"
-                 f"🌍 Страна: {escape(actual_country_name)}\n"
-                 f"📞 Номер: <code>{escape(phone)}</code>\n"
-                 f"💰 Цена: {actual_price:,} сум\n"
-                 f"🆔 Пользователь: <code>{user.id}</code>\n"
-                 f"👤 @{escape(user.username or 'нет username')}\n"
-                 f"🧾 Order ID: <code>{escape(order_id)}</code>"),parse_mode="HTML")
+            await context.bot.send_message(
+                ADMIN_ID,
+                (
+                    "📱 <b>НОВЫЙ ЗАКАЗ НОМЕРА</b>\n\n"
+                    f"🌍 Страна: {escape(actual_country_name)}\n"
+                    f"📞 Номер: <code>{escape(phone)}</code>\n"
+                    f"💰 Цена для клиента: {actual_sale_price:,} сум\n"
+                    f"🏷 Себестоимость API: {actual_cost:,} сум\n"
+                    f"📈 Доход: {actual_sale_price - actual_cost:,} сум\n"
+                    f"🆔 Пользователь: <code>{user.id}</code>\n"
+                    f"👤 @{escape(user.username or 'нет username')}\n"
+                    f"🧾 Order ID: <code>{escape(order_id)}</code>"
+                ),
+                parse_mode="HTML",
+            )
         except Exception:
             logger.exception("NUMBER ADMIN NOTIFICATION ERROR")
+
         keyboard=[
             [InlineKeyboardButton("📩 Проверить SMS",callback_data=f"number_code_{order_id}")],
             [InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")],
             [InlineKeyboardButton("📱 Купить ещё",callback_data="shop_numbers")],
         ]
-        await query.message.edit_text(tr(user.id,"number_success",country=actual_country_name,phone=phone,price=actual_price,order_id=order_id),reply_markup=InlineKeyboardMarkup(keyboard),parse_mode="HTML")
+
+        await query.message.edit_text(
+            tr(
+                user.id,
+                "number_success",
+                country=actual_country_name,
+                phone=phone,
+                price=actual_sale_price,
+                order_id=order_id,
+            ),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML",
+        )
         return
 
     if query.data.startswith("number_code_"):
