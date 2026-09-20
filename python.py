@@ -134,6 +134,13 @@ ADMIN_UNBAN_ID = 14
 ADMIN_MESSAGE_ID = 15
 ADMIN_MESSAGE_TEXT = 16
 
+# Новые состояния для рассылки и промокодов
+ADMIN_BROADCAST_TEXT = 17
+ADMIN_PROMO_CODE = 18
+ADMIN_PROMO_AMOUNT = 19
+ADMIN_PROMO_USERS = 20
+ACTIVATE_PROMO_STATE = 21
+
 
 # =========================================================
 # ПОДАРКИ
@@ -522,7 +529,6 @@ def init_db():
     """)
 
     # CardXabar: ожидаемые пополнения.
-    # payment_amount — уникальная сумма, которую пользователь должен перевести.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_payments (
             payment_id TEXT PRIMARY KEY,
@@ -534,7 +540,7 @@ def init_db():
         )
     """)
 
-    # CardXabar: защита от повторной обработки одного и того же сообщения.
+    # CardXabar: защита от повторной обработки.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_transactions (
             fingerprint TEXT PRIMARY KEY,
@@ -556,6 +562,25 @@ def init_db():
             sms_code TEXT,
             sms_password TEXT,
             created_at TEXT NOT NULL
+        )
+    """)
+
+    # Таблица промокодов
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS promos (
+            code TEXT PRIMARY KEY,
+            amount INTEGER NOT NULL,
+            max_uses INTEGER NOT NULL,
+            uses_count INTEGER DEFAULT 0
+        )
+    """)
+
+    # Таблица для отслеживания активаций промокодов пользователями
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS promo_activations (
+            user_id INTEGER,
+            code TEXT,
+            PRIMARY KEY (user_id, code)
         )
     """)
 
@@ -781,7 +806,6 @@ def get_user_number_orders(user_id, limit=10):
 
 
 def create_cardxabar_payment(user_id, requested_amount):
-    """Создаёт уникальную сумму для перевода через CardXabar."""
     if requested_amount < 1000 or requested_amount > 9_999_900:
         raise ValueError("Сумма должна быть от 1000 до 9 999 900 сум.")
 
@@ -790,7 +814,6 @@ def create_cardxabar_payment(user_id, requested_amount):
 
     try:
         for _ in range(200):
-            # Двузначный суффикс: например 10000 -> 10047.
             suffix = uuid.uuid4().int % 90 + 10
             payment_amount = requested_amount + suffix
 
@@ -813,56 +836,10 @@ def create_cardxabar_payment(user_id, requested_amount):
                 conn.commit()
                 return payment_id, payment_amount
             except sqlite3.IntegrityError:
-                # Такая уникальная сумма уже занята другим ожидающим платежом.
                 conn.rollback()
                 continue
 
         raise RuntimeError("Не удалось создать уникальную сумму платежа.")
-    finally:
-        conn.close()
-
-
-def get_cardxabar_payment(payment_amount):
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT payment_id, user_id, requested_amount, payment_amount, status, created_at
-        FROM cardxabar_payments
-        WHERE payment_amount = ? AND status = 'pending'
-        ORDER BY created_at ASC
-        LIMIT 1
-        """,
-        (payment_amount,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row
-
-
-def mark_cardxabar_test_transaction(fingerprint, payment_amount, raw_text):
-    """Записывает найденную транзакцию. Баланс НЕ меняет."""
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            INSERT INTO cardxabar_transactions
-            (fingerprint, payment_amount, raw_text, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                fingerprint,
-                payment_amount,
-                raw_text,
-                datetime.now().isoformat(timespec="seconds"),
-            ),
-        )
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        return False
     finally:
         conn.close()
 
@@ -935,7 +912,6 @@ def send_json(handler, status, payload):
 
 
 def notify_user_balance(user_id, credited_amount):
-    """Отправляет пользователю уведомление после успешного пополнения."""
     try:
         user = get_user(user_id)
         lang = user.get("lang", "ru")
@@ -1138,7 +1114,6 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
-        # Уведомление отправляется только после успешного commit.
         if not CARDXABAR_DRY_RUN and 'user_id' in locals() and 'credited_amount' in locals():
             notify_user_balance(user_id, credited_amount)
 
@@ -1178,6 +1153,14 @@ def main_keyboard(user_id):
                 "👤 Профиль",
                 callback_data="main_profile",
             ),
+        ],
+
+        [
+            # Добавлена кнопка промокода в главное меню
+            InlineKeyboardButton(
+                "🎁 Промокод",
+                callback_data="main_promo",
+            )
         ],
 
         [
@@ -1277,6 +1260,85 @@ async def profile_callback(update, context):
         parse_mode="HTML",
 
     )
+
+
+# =========================================================
+# АКТИВАЦИЯ ПРОМОКОДА (ОБРАБОТКА ИЗ ГЛАВНОГО МЕНЮ)
+# =========================================================
+
+async def promo_menu_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    context.user_data.clear()
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_main")]
+    ])
+
+    await query.message.edit_text(
+        "🎟 Введите ваш промокод для активации:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+    return ACTIVATE_PROMO_STATE
+
+
+async def activate_promo_input(update, context):
+    user = update.effective_user
+    code = update.message.text.strip().upper()
+
+    conn = sqlite3.connect(DB_FILE, timeout=20)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    promo = cursor.execute("SELECT * FROM promos WHERE code = ?", (code,)).fetchone()
+
+    if not promo:
+        conn.close()
+        await update.message.reply_text("❌ Такого промокода не существует.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    # Проверяем, активировал ли пользователь уже этот промокод
+    activated = cursor.execute(
+        "SELECT 1 FROM promo_activations WHERE user_id = ? AND code = ?",
+        (user.id, code)
+    ).fetchone()
+
+    if activated:
+        conn.close()
+        await update.message.reply_text("❌ Вы уже активировали этот промокод.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if promo["uses_count"] >= promo["max_uses"]:
+        conn.close()
+        await update.message.reply_text("❌ Лимит активаций этого промокода исчерпан.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    # Начисляем средства и фиксируем активацию
+    amount = promo["amount"]
+    change_balance(user.id, amount)
+
+    cursor.execute(
+        "UPDATE promos SET uses_count = uses_count + 1 WHERE code = ?",
+        (code,)
+    )
+    cursor.execute(
+        "INSERT INTO promo_activations (user_id, code) VALUES (?, ?)",
+        (user.id, code)
+    )
+    conn.commit()
+    conn.close()
+
+    await update.message.reply_text(
+        f"✅ <b>Промокод успешно активирован!</b>\n\n"
+        f"💰 Вам начислено: <b>{amount:,} сум</b>",
+        parse_mode="HTML"
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 # =========================================================
@@ -1529,7 +1591,6 @@ async def main_buttons(update, context):
             )
             return
 
-        # Сортируем страны по цене продажи: от самой дешёвой к самой дорогой.
         countries = sorted(
             countries,
             key=lambda item: number_sale_price(int(item.get("price_uzs") or 0)),
@@ -1539,8 +1600,6 @@ async def main_buttons(update, context):
         for item in countries[:60]:
             code=str(item.get("country_code") or "").upper()
             raw_name=str(item.get("country_name") or code).strip()
-            # В документации API иногда уже есть флаг. Убираем его и ставим
-            # собственный флаг по country_code, чтобы формат был единым.
             name=re.sub(r"^[🇦-🇿]{2}\s*", "", raw_name)
             cost=int(item.get("price_uzs") or 0)
             qty=int(item.get("qty") or 0)
@@ -1585,6 +1644,7 @@ async def main_buttons(update, context):
         keyboard.append([InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")])
         await query.message.edit_text("🎁 <b>Актуальные подарки</b>\n\nЦена загружается напрямую из API.",reply_markup=InlineKeyboardMarkup(keyboard),parse_mode="HTML")
         return
+
 
 # =========================================================
 # ЯЗЫК
@@ -1681,7 +1741,6 @@ async def check_telegram_user(username: str):
 
 
 async def sim_api_request(endpoint, params=None):
-    """Запрос к SIM API sim.roxiy.uz. Ключ передаётся только в query-параметре key."""
     query = dict(params or {})
     query["key"] = (SIM_API_KEY or "").strip().strip('"').strip("'")
     url = f"{SIM_API_BASE_URL}{endpoint}"
@@ -1726,17 +1785,14 @@ async def sim_api_request(endpoint, params=None):
 
 
 async def get_number_countries():
-    """Возвращает актуальный каталог стран из SIM API."""
     return await sim_api_request("/api/countries")
 
 
 async def buy_number(country_code):
-    """Покупает номер через GET /api/number?key=...&code=... ."""
     return await sim_api_request("/api/number", params={"code": str(country_code).lower()})
 
 
 async def get_number_code(phone):
-    """Получает SMS через GET /api/sms?key=...&number=... ."""
     return await sim_api_request("/api/sms", params={"number": str(phone)})
 
 
@@ -1808,7 +1864,6 @@ async def buy_start(update, context):
 
     data = query.data
 
-    # Покупка Stars: ввод своего количества
     if data == "buy_stars":
 
         context.user_data["product_type"] = "stars"
@@ -1822,7 +1877,6 @@ async def buy_start(update, context):
 
         return BUY_AMOUNT
 
-    # Покупка Stars: готовые варианты
     if data.startswith("buy_stars_"):
 
         amount = int(data.split("_")[2])
@@ -1835,9 +1889,6 @@ async def buy_start(update, context):
         )
 
         return BUY_USERNAME
-
-    # Покупка Premium
-
 
     if data.startswith("buy_premium_"):
 
@@ -2062,8 +2113,6 @@ async def buy_confirm(update, context):
 
     )
 
-    # Передаём Telegram ID пользователя в Partner API-функцию,
-    # чтобы сформировать уникальный X-Idempotency-Key.
     try:
         success, order_id, api_error = await send_order_to_partner(
             product_type,
@@ -2180,7 +2229,6 @@ async def refill_amount(update, context):
 
     amount = int(text)
 
-    # Для уникальной суммы нужно оставить место под суффикс 10–99.
     if amount < 1000:
         await update.message.reply_text(
             "❌ Минимальная сумма пополнения — 1 000 сум."
@@ -2418,7 +2466,6 @@ async def gift_start(update, context):
         [InlineKeyboardButton("🕵️ Отправить анонимно",callback_data="gift_anonymous_yes")],
         [InlineKeyboardButton("❌ Отмена",callback_data="cancel_gift")],
     ]
-    # Сначала показываем настоящий custom emoji подарка.
     if emoji_id:
         try:
             await send_custom_emoji(
@@ -2660,6 +2707,7 @@ async def gift_username(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
+
 # =========================================================
 # ОТМЕНА
 # =========================================================
@@ -2747,6 +2795,22 @@ def admin_keyboard():
                 callback_data="admin_message",
             )
 
+        ],
+
+        [
+            # Добавлена кнопка рассылки всем пользователям
+            InlineKeyboardButton(
+                "📢 Рассылка всем",
+                callback_data="admin_broadcast",
+            )
+        ],
+
+        [
+            # Добавлена кнопка создания промокода
+            InlineKeyboardButton(
+                "🎟 Создать промокод",
+                callback_data="admin_create_promo",
+            )
         ],
 
         [
@@ -2865,6 +2929,18 @@ async def admin_callback(update, context):
         )
 
         return ADMIN_MESSAGE_ID
+
+    if data == "admin_broadcast":
+        await query.message.edit_text(
+            "📢 Введите текст сообщения для рассылки всем пользователям:"
+        )
+        return ADMIN_BROADCAST_TEXT
+
+    if data == "admin_create_promo":
+        await query.message.edit_text(
+            "🎟 Введите код нового промокода (например, SALE2026):"
+        )
+        return ADMIN_PROMO_CODE
 
 
     if data == "admin_users":
@@ -3056,6 +3132,116 @@ async def admin_callback(update, context):
         )
 
         return ConversationHandler.END
+
+
+# =========================================================
+# АДМИН: РАССЫЛКА ВСЕМ
+# =========================================================
+
+async def admin_broadcast_text(update, context):
+    text = update.message.text
+    users = get_users()
+
+    success_count = 0
+    fail_count = 0
+
+    status_msg = await update.message.reply_text("⏳ Начинаю рассылку...")
+
+    for row in users:
+        user_id = row[0]
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"📢 <b>Рассылка:</b>\n\n{escape(text)}",
+                parse_mode="HTML"
+            )
+            success_count += 1
+        except Exception:
+            fail_count += 1
+
+    await status_msg.edit_text(
+        f"✅ <b>Рассылка завершена!</b>\n\n"
+        f"👥 Успешно отправлено: {success_count}\n"
+        f"❌ Ошибок (заблокировали бота): {fail_count}",
+        parse_mode="HTML"
+    )
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# =========================================================
+# АДМИН: СОЗДАНИЕ ПРОМОКОДА
+# =========================================================
+
+async def admin_promo_code(update, context):
+    code = update.message.text.strip().upper()
+    if not code:
+        await update.message.reply_text("❌ Введите корректный код промокода.")
+        return ADMIN_PROMO_CODE
+
+    context.user_data["new_promo_code"] = code
+    await update.message.reply_text("💰 Введите сумму промокода (в сумах):")
+    return ADMIN_PROMO_AMOUNT
+
+
+async def admin_promo_amount(update, context):
+    text = update.message.text.replace(" ", "")
+    if not text.isdigit():
+        await update.message.reply_text("❌ Введите сумму цифрами.")
+        return ADMIN_PROMO_AMOUNT
+
+    amount = int(text)
+    if amount <= 0:
+        await update.message.reply_text("❌ Сумма должна быть больше 0.")
+        return ADMIN_PROMO_AMOUNT
+
+    context.user_data["new_promo_amount"] = amount
+    await update.message.reply_text("👥 Введите количество пользователей, которые смогут использовать этот промокод:")
+    return ADMIN_PROMO_USERS
+
+
+async def admin_promo_users(update, context):
+    text = update.message.text.strip()
+    if not text.isdigit():
+        await update.message.reply_text("❌ Введите число пользователей цифрами.")
+        return ADMIN_PROMO_USERS
+
+    max_uses = int(text)
+    if max_uses <= 0:
+        await update.message.reply_text("❌ Количество пользователей должно быть больше 0.")
+        return ADMIN_PROMO_USERS
+
+    code = context.user_data["new_promo_code"]
+    amount = context.user_data["new_promo_amount"]
+
+    conn = sqlite3.connect(DB_FILE, timeout=20)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT OR REPLACE INTO promos (code, amount, max_uses, uses_count) VALUES (?, ?, ?, 0)",
+            (code, amount, max_uses)
+        )
+        conn.commit()
+    except Exception as e:
+        logger.exception("CREATE PROMO ERROR: %s", e)
+        await update.message.reply_text("❌ Ошибка при создании промокода в базе данных.")
+        conn.close()
+        context.user_data.clear()
+        return ConversationHandler.END
+    finally:
+        conn.close()
+
+    await update.message.reply_text(
+        f"✅ <b>Промокод успешно создан!</b>\n\n"
+        f"🎟 Код: <code>{escape(code)}</code>\n"
+        f"💰 Сумма: {amount:,} сум\n"
+        f"👥 Лимит пользователей: {max_uses}",
+        parse_mode="HTML"
+    )
+
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 # =========================================================
@@ -3492,7 +3678,6 @@ async def number_callback(update, context):
         await query.message.edit_text(tr(user.id,"number_buying"))
         buy_result=await buy_number(country_code)
 
-        # У этого API ошибки приходят с HTTP 200 и полем error.
         if buy_result.get("error") or not buy_result.get("phone"):
             error_text=str(buy_result.get("error") or "Не удалось купить номер")
             await query.message.edit_text(
@@ -3513,8 +3698,6 @@ async def number_callback(update, context):
             )
             return
 
-        # API списывает свою стоимость сразу при getnum. Поэтому сначала убеждаемся,
-        # что у пользователя достаточно средств по продаже, затем сохраняем результат.
         if user_data["balance"]<actual_sale_price:
             logger.error(
                 "NUMBER PRICE CHANGED AFTER SIM BUY | user_id=%s | country=%s | balance=%s | sale_price=%s | api_cost=%s",
@@ -3527,7 +3710,6 @@ async def number_callback(update, context):
             )
             return
 
-        # Новый API не выдаёт order_id. Создаём локальный ID заказа.
         local_order_id=f"sim-{uuid.uuid4().hex[:12]}"
         change_balance(user.id,-actual_sale_price)
         save_number_order(
@@ -3602,7 +3784,6 @@ async def number_callback(update, context):
             )
             return
 
-        # /api/sms возвращает error, пока код ещё не пришёл.
         update_number_order(local_order_id,status="waiting",phone=phone)
         waiting_text=error_text or "SMS пока не пришло. Попробуйте проверить ещё раз через несколько секунд."
         await query.message.edit_text(
@@ -3613,7 +3794,6 @@ async def number_callback(update, context):
             ]),
             parse_mode="HTML",
         )
-
 
 
 # =========================================================
@@ -3642,7 +3822,6 @@ def main():
 
     # =====================================================
     # CONVERSATION HANDLER
-    # ВАЖНО: СТАВИМ ПЕРВЫМ
     # =====================================================
 
     conversation_handler = ConversationHandler(
@@ -3674,8 +3853,13 @@ def main():
 
                 admin_callback,
 
-                pattern=r"^admin_(add|sub|ban|unban|message)$",
+                pattern=r"^admin_(add|sub|ban|unban|message|broadcast|create_promo)$",
 
+            ),
+
+            CallbackQueryHandler(
+                promo_menu_callback,
+                pattern=r"^main_promo$",
             ),
 
         ],
@@ -3906,6 +4090,41 @@ def main():
 
             ],
 
+            ADMIN_BROADCAST_TEXT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    admin_broadcast_text,
+                )
+            ],
+
+            ADMIN_PROMO_CODE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    admin_promo_code,
+                )
+            ],
+
+            ADMIN_PROMO_AMOUNT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    admin_promo_amount,
+                )
+            ],
+
+            ADMIN_PROMO_USERS: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    admin_promo_users,
+                )
+            ],
+
+            ACTIVATE_PROMO_STATE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    activate_promo_input,
+                )
+            ],
+
         },
 
         fallbacks=[
@@ -4083,4 +4302,3 @@ async def unknown_callback(update, context):
 if __name__ == "__main__":
 
     main()
-
