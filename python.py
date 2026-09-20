@@ -40,12 +40,16 @@ from telegram.ext import (
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 
-# Partner API
+# =========================================================
+# PARTNER API
+# =========================================================
+
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
 
+# Новый endpoint Partner API
 PARTNER_API_URL = os.getenv(
     "PARTNER_API_URL",
-    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api/v2"
+    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api.php"
 ).rstrip("/")
 
 _partner_parts = urlsplit(PARTNER_API_URL)
@@ -64,7 +68,10 @@ PARTNER_API_TIMEOUT = float(
     os.environ.get("PARTNER_API_TIMEOUT", "40")
 )
 
-# CardXabar
+# =========================================================
+# CARDXABAR
+# =========================================================
+
 CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
 
 CARDXABAR_DRY_RUN = (
@@ -110,15 +117,6 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 async def safe_edit_text(message, text, **kwargs):
-    """
-    Безопасное изменение текста сообщения.
-
-    Если Telegram сообщает:
-    Message is not modified
-
-    значит сообщение уже имеет такой же текст/клавиатуру.
-    В этом случае ошибку игнорируем.
-    """
 
     try:
 
@@ -2536,8 +2534,6 @@ async def buy_confirm(
 
         return ConversationHandler.END
 
-    # Проверяем баланс ещё раз
-    # непосредственно перед покупкой.
     current_user = get_user(
         user.id,
         user.username,
@@ -4640,8 +4636,6 @@ def main():
 
         ],
 
-        # ВАЖНО:
-        # повторный вход в ConversationHandler запрещён.
         allow_reentry=False,
 
     )
@@ -4727,9 +4721,6 @@ def main():
 
     # =====================================================
     # ГЛАВНЫЕ КНОПКИ
-    #
-    # Здесь НЕТ buy_* / gift_* / admin_*,
-    # потому что они принадлежат ConversationHandler.
     # =====================================================
 
     application.add_handler(
@@ -4767,8 +4758,6 @@ def main():
         "BOT STARTED"
     )
 
-    # ВАЖНО:
-    # старые накопившиеся updates не обрабатываем.
     application.run_polling(
         drop_pending_updates=True
     )
