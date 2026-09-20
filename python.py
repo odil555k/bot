@@ -37,8 +37,14 @@ from telegram.ext import (
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 
-ELDER_API_KEY = os.environ["ELDER_API_KEY"]
-ELDER_API_URL = "https://elder.uz"
+# Partner API для автоматической покупки Telegram Stars / Premium.
+# Ключ API хранится только в переменных окружения.
+PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
+PARTNER_API_URL = os.environ.get(
+    "PARTNER_API_URL",
+    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api/v2",
+).rstrip("/")
+PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
 
 # Секрет для связи отдельного клиента с ботом.
 CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
@@ -1429,80 +1435,179 @@ async def language_callback(update, context):
 
 
 # =========================================================
-# ELDER API
+# TELEGRAM STARS & PREMIUM PARTNER API
 # =========================================================
 
-async def send_order_to_elder(
-    product_type,
-    value,
-    target,
-):
-    """Отправка заказа по новой документации Elder API."""
+async def partner_api_request(action, method="GET", payload=None):
+    """
+    Универсальный запрос к Partner API.
 
-    target = target.replace("@", "").strip()
+    Авторизация:
+        X-API-Key: PARTNER_API_KEY
+
+    Поддерживаемые действия по документации:
+        api_info
+        api_services
+        api_create_order
+    """
+    url = f"{PARTNER_API_URL}?action={action}"
 
     headers = {
-        "X-Api-Key": ELDER_API_KEY,
+        "X-API-Key": PARTNER_API_KEY,
+        "Accept": "application/json",
     }
 
     try:
-        async with httpx.AsyncClient(timeout=40) as client:
-
-            if product_type == "stars":
+        async with httpx.AsyncClient(timeout=PARTNER_API_TIMEOUT) as client:
+            if method.upper() == "POST":
+                headers["Content-Type"] = "application/json"
                 response = await client.post(
-                    f"{ELDER_API_URL}/buyStars",
+                    url,
                     headers=headers,
-                    params={
-                        "username": target,
-                        "amount": int(value),
-                    },
+                    json=payload or {},
                 )
-
-            elif product_type == "premium":
-                response = await client.post(
-                    f"{ELDER_API_URL}/buyPremium",
-                    headers=headers,
-                    params={
-                        "username": target,
-                        "months": int(value),
-                    },
-                )
-
             else:
-                logger.error("UNKNOWN PRODUCT TYPE: %s", product_type)
-                return False
+                response = await client.get(
+                    url,
+                    headers=headers,
+                )
 
         logger.info(
-            "ELDER RESPONSE %s: %s",
+            "PARTNER API RESPONSE | action=%s | HTTP=%s | BODY=%s",
+            action,
             response.status_code,
-            response.text,
+            response.text[:2000],
         )
 
         try:
             data = response.json()
         except Exception:
-            logger.error("ELDER RETURNED NON-JSON RESPONSE: %s", response.text)
-            return False
+            logger.error(
+                "PARTNER API RETURNED NON-JSON | action=%s | BODY=%s",
+                action,
+                response.text[:2000],
+            )
+            return {
+                "success": False,
+                "error": "API returned invalid JSON",
+                "_http_status": response.status_code,
+            }
 
-        if response.status_code == 200 and data.get("success") is True:
-            logger.info("ELDER ORDER SUCCESS: %s", data)
-            return True
+        if not isinstance(data, dict):
+            return {
+                "success": False,
+                "error": "API returned invalid response",
+                "_http_status": response.status_code,
+            }
 
-        logger.error(
-            "ELDER API ERROR | HTTP=%s | ERROR=%s | CODE=%s",
-            response.status_code,
-            data.get("error"),
-            data.get("error_code"),
-        )
-        return False
+        data["_http_status"] = response.status_code
+        return data
 
     except httpx.TimeoutException:
-        logger.error("ELDER API TIMEOUT")
-        return False
+        logger.error("PARTNER API TIMEOUT | action=%s", action)
+        return {
+            "success": False,
+            "error": "API timeout",
+            "_http_status": 0,
+        }
+
+    except httpx.HTTPError as e:
+        logger.error("PARTNER API HTTP ERROR | action=%s | error=%s", action, e)
+        return {
+            "success": False,
+            "error": str(e),
+            "_http_status": 0,
+        }
 
     except Exception as e:
-        logger.exception("ELDER API ERROR: %s", e)
-        return False
+        logger.exception("PARTNER API ERROR | action=%s | error=%s", action, e)
+        return {
+            "success": False,
+            "error": str(e),
+            "_http_status": 0,
+        }
+
+
+async def partner_api_info():
+    """Получает баланс и информацию профиля Partner API."""
+    return await partner_api_request("api_info", "GET")
+
+
+async def partner_api_services():
+    """Получает список услуг и текущие цены Partner API."""
+    return await partner_api_request("api_services", "GET")
+
+
+async def send_order_to_partner(product_type, value, target):
+    """
+    Создаёт заказ Stars или Premium через новый Partner API.
+
+    Stars:
+        service=stars
+        target=username
+        quantity=stars
+
+    Premium:
+        service=premium
+        target=username
+        months=3/6/12
+    """
+    target = target.replace("@", "").strip()
+
+    if product_type == "stars":
+        payload = {
+            "service": "stars",
+            "target": target,
+            "quantity": int(value),
+        }
+
+    elif product_type == "premium":
+        months = int(value)
+
+        if months not in {3, 6, 12}:
+            logger.error("INVALID PREMIUM MONTHS: %s", months)
+            return False, None
+
+        payload = {
+            "service": "premium",
+            "target": target,
+            "months": months,
+        }
+
+    else:
+        logger.error("UNKNOWN PRODUCT TYPE: %s", product_type)
+        return False, None
+
+    result = await partner_api_request(
+        "api_create_order",
+        method="POST",
+        payload=payload,
+    )
+
+    success = result.get("success") is True
+    order_id = result.get("order_id")
+
+    if success:
+        logger.info(
+            "PARTNER ORDER SUCCESS | type=%s | target=%s | value=%s | order_id=%s",
+            product_type,
+            target,
+            value,
+            order_id,
+        )
+        return True, order_id
+
+    logger.error(
+        "PARTNER ORDER FAILED | type=%s | target=%s | value=%s | "
+        "HTTP=%s | error=%s",
+        product_type,
+        target,
+        value,
+        result.get("_http_status"),
+        result.get("error", "Unknown error"),
+    )
+
+    return False, None
 
 
 # =========================================================
@@ -1771,7 +1876,7 @@ async def buy_confirm(update, context):
 
     )
 
-    success = await send_order_to_elder(
+    success, order_id = await send_order_to_partner(
 
         product_type,
 
@@ -1814,6 +1919,7 @@ async def buy_confirm(update, context):
             f"👤 Получатель: @{escape(username)}\n"
 
             f"💰 Цена: {price:,} сум\n"
+            f"🧾 Order ID: <code>{escape(str(order_id or 'не указан'))}</code>\n"
 
             f"🆔 ID заказчика: "
             f"<code>{user.id}</code>\n"
@@ -1834,8 +1940,8 @@ async def buy_confirm(update, context):
             "✅ <b>Заказ успешно выполнен!</b>\n\n"
 
             f"📦 {escape(product)}\n"
-
-            f"👤 Получатель: @{escape(username)}"
+            f"👤 Получатель: @{escape(username)}\n"
+            f"🧾 Order ID: <code>{escape(str(order_id or 'не указан'))}</code>"
 
         ),
 
