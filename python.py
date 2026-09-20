@@ -18,7 +18,6 @@ from telegram import (
     InlineKeyboardMarkup,
     MessageEntity,
 )
-from telegram.error import BadRequest, Forbidden
 
 from telegram.ext import (
     Application,
@@ -780,37 +779,6 @@ def send_json(handler, status, payload):
     handler.wfile.write(body)
 
 
-async def safe_send_user_message(bot, user_id, text, **kwargs):
-    """Безопасно отправляет сообщение пользователю.
-
-    Ошибки Chat not found / bot blocked by user не должны ломать
-    админскую операцию. Другие ошибки не скрываем.
-    """
-    try:
-        await bot.send_message(
-            chat_id=user_id,
-            text=text,
-            **kwargs,
-        )
-        return True
-    except BadRequest as e:
-        if "Chat not found" in str(e):
-            logger.warning(
-                "USER NOT NOTIFIED | user_id=%s | error=%s",
-                user_id,
-                e,
-            )
-            return False
-        raise
-    except Forbidden as e:
-        logger.warning(
-            "USER NOT NOTIFIED | user_id=%s | error=%s",
-            user_id,
-            e,
-        )
-        return False
-
-
 def notify_user_balance(user_id, credited_amount):
     """Отправляет пользователю уведомление после успешного пополнения."""
     try:
@@ -1474,33 +1442,42 @@ async def partner_api_request(action, method="GET", payload=None):
     """
     Универсальный запрос к Partner API.
 
-    Авторизация:
-        X-API-Key: PARTNER_API_KEY
+    Авторизация отправляется двумя способами одновременно:
+    1) X-API-Key header
+    2) api_key query parameter
 
-    Поддерживаемые действия по документации:
-        api_info
-        api_services
-        api_create_order
+    Это нужно для совместимости с текущей версией Partner API,
+    где сервер может проверять ключ через query string.
     """
-    url = f"{PARTNER_API_URL}?action={action}"
+    api_key = (PARTNER_API_KEY or "").strip().strip('"').strip("'")
+
+    base_params = {
+        "action": action,
+        "api_key": api_key,
+    }
 
     headers = {
-        "X-API-Key": PARTNER_API_KEY,
+        "X-API-Key": api_key,
         "Accept": "application/json",
     }
 
     try:
-        async with httpx.AsyncClient(timeout=PARTNER_API_TIMEOUT) as client:
+        async with httpx.AsyncClient(
+            timeout=PARTNER_API_TIMEOUT,
+            follow_redirects=True,
+        ) as client:
             if method.upper() == "POST":
                 headers["Content-Type"] = "application/json"
                 response = await client.post(
-                    url,
+                    PARTNER_API_URL,
+                    params=base_params,
                     headers=headers,
                     json=payload or {},
                 )
             else:
                 response = await client.get(
-                    url,
+                    PARTNER_API_URL,
+                    params=base_params,
                     headers=headers,
                 )
 
@@ -1631,12 +1608,13 @@ async def send_order_to_partner(product_type, value, target):
 
     logger.error(
         "PARTNER ORDER FAILED | type=%s | target=%s | value=%s | "
-        "HTTP=%s | error=%s",
+        "HTTP=%s | error=%s | response=%s",
         product_type,
         target,
         value,
         result.get("_http_status"),
         result.get("error", "Unknown error"),
+        str(result)[:2000],
     )
 
     return False, None
@@ -2182,8 +2160,7 @@ async def payment_callback(update, context):
 
         change_balance(user_id, amount)
 
-        await safe_send_user_message(
-            context.bot,
+        await context.bot.send_message(
             user_id,
             (
                 "✅ <b>Баланс пополнен!</b>\n\n"
@@ -2202,8 +2179,7 @@ async def payment_callback(update, context):
 
         user_id = int(parts[2])
 
-        await safe_send_user_message(
-            context.bot,
+        await context.bot.send_message(
             user_id,
             "❌ Пополнение отклонено.",
         )
@@ -3057,9 +3033,7 @@ async def admin_add_amount(update, context):
 
     change_balance(user_id, amount)
 
-    notified = await safe_send_user_message(
-
-        context.bot,
+    await context.bot.send_message(
 
         user_id,
 
@@ -3075,17 +3049,10 @@ async def admin_add_amount(update, context):
 
     )
 
-    admin_result = (
-        f"✅ Добавлено <b>{amount:,} сум</b>\n"
-        f"👤 ID: <code>{user_id}</code>"
-    )
-
-    if not notified:
-        admin_result += "\n\n⚠️ Баланс изменён, но уведомление пользователю не отправлено: Telegram не нашёл этот чат."
-
     await update.message.reply_text(
 
-        admin_result,
+        f"✅ Добавлено <b>{amount:,} сум</b>\n"
+        f"👤 ID: <code>{user_id}</code>",
 
         parse_mode="HTML",
 
@@ -3170,9 +3137,7 @@ async def admin_sub_amount(update, context):
 
     change_balance(user_id, -amount)
 
-    notified = await safe_send_user_message(
-
-        context.bot,
+    await context.bot.send_message(
 
         user_id,
 
@@ -3188,17 +3153,10 @@ async def admin_sub_amount(update, context):
 
     )
 
-    admin_result = (
-        f"✅ Убавлено <b>{amount:,} сум</b>\n"
-        f"👤 ID: <code>{user_id}</code>"
-    )
-
-    if not notified:
-        admin_result += "\n\n⚠️ Баланс изменён, но уведомление пользователю не отправлено."
-
     await update.message.reply_text(
 
-        admin_result,
+        f"✅ Убавлено <b>{amount:,} сум</b>\n"
+        f"👤 ID: <code>{user_id}</code>",
 
         parse_mode="HTML",
 
@@ -3231,9 +3189,7 @@ async def admin_ban_id(update, context):
 
     set_ban(user_id, 1)
 
-    await safe_send_user_message(
-
-        context.bot,
+    await context.bot.send_message(
 
         user_id,
 
@@ -3274,9 +3230,7 @@ async def admin_unban_id(update, context):
 
     set_ban(user_id, 0)
 
-    await safe_send_user_message(
-
-        context.bot,
+    await context.bot.send_message(
 
         user_id,
 
@@ -3337,9 +3291,7 @@ async def admin_message_text(update, context):
 
     try:
 
-        notified = await safe_send_user_message(
-
-            context.bot,
+        await context.bot.send_message(
 
             user_id,
 
@@ -3355,14 +3307,9 @@ async def admin_message_text(update, context):
 
         )
 
-        if notified:
-            await update.message.reply_text(
-                "✅ Сообщение отправлено."
-            )
-        else:
-            await update.message.reply_text(
-                "❌ Пользователь недоступен в Telegram. Возможно, он не запускал бота или заблокировал его."
-            )
+        await update.message.reply_text(
+            "✅ Сообщение отправлено."
+        )
 
     except Exception as e:
 
@@ -3370,7 +3317,8 @@ async def admin_message_text(update, context):
 
         await update.message.reply_text(
 
-            "❌ Не удалось отправить сообщение."
+            "❌ Не удалось отправить сообщение.\n"
+            "Возможно, пользователь заблокировал бота."
 
         )
 
@@ -3818,12 +3766,7 @@ def main():
     )
 
 
-    logger.info(
-        "BOT STARTED | ADMIN_ID=%s | PARTNER_API_CONFIGURED=%s | CARDXABAR_CONFIGURED=%s",
-        ADMIN_ID,
-        bool(PARTNER_API_KEY and PARTNER_API_URL),
-        bool(CARDXABAR_API_KEY),
-    )
+    logger.info("BOT STARTED")
 
     application.run_polling(
 
