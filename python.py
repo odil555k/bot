@@ -1580,7 +1580,8 @@ async def main_buttons(update, context):
             price=int(gift.get("price_uzs",0))
             if not gift_id or price<=0:
                 continue
-            keyboard.append([InlineKeyboardButton(f"🎁 Подарок #{index} — {price:,} сум",callback_data=f"giftapi_{gift_id}")])
+            gift_name=str(gift.get("name") or f"Подарок #{index}").strip()
+            keyboard.append([InlineKeyboardButton(f"🎁 {gift_name} — {price:,} сум",callback_data=f"giftapi_{gift_id}")])
         keyboard.append([InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")])
         await query.message.edit_text("🎁 <b>Актуальные подарки</b>\n\nЦена загружается напрямую из API.",reply_markup=InlineKeyboardMarkup(keyboard),parse_mode="HTML")
         return
@@ -1763,19 +1764,36 @@ async def send_order_to_partner(product_type,value,target,telegram_user_id):
         months=int(value)
         if months not in {3,6,12}:
             logger.error("INVALID PREMIUM MONTHS: %s",months)
-            return False,None
+            return False, None, "Недопустимый срок Premium."
         payload={"username":target,"duration":months}
     else:
         logger.error("UNKNOWN PRODUCT TYPE: %s",product_type)
-        return False,None
+        return False, None, "Неизвестный тип товара."
     result=await partner_api_request(endpoint,method="POST",payload=payload,idempotency_key=idem_key)
     if result.get("ok") is True:
         result_data=result.get("result") or {}
         order_id=result_data.get("order_id") if isinstance(result_data,dict) else None
         logger.info("PARTNER ORDER SUCCESS | type=%s | target=%s | value=%s | order_id=%s",product_type,target,value,order_id)
-        return True,order_id
-    logger.error("PARTNER ORDER FAILED | type=%s | target=%s | value=%s | HTTP=%s | message=%s | response=%s",product_type,target,value,result.get("_http_status"),result.get("message","Unknown error"),str(result)[:2000])
-    return False,None
+        return True, order_id, None
+
+    api_error = (
+        result.get("message")
+        or result.get("error")
+        or result.get("code")
+        or "Partner API не выполнил заказ."
+    )
+
+    logger.error(
+        "PARTNER ORDER FAILED | type=%s | target=%s | value=%s | HTTP=%s | "
+        "message=%s | response=%s",
+        product_type,
+        target,
+        value,
+        result.get("_http_status"),
+        api_error,
+        str(result)[:2000],
+    )
+    return False, None, str(api_error)
 
 
 # =========================================================
@@ -2044,25 +2062,35 @@ async def buy_confirm(update, context):
 
     )
 
-    success, order_id = await send_order_to_partner(
-
-        product_type,
-
-        amount,
-
-        username,
-
-    )
+    # Передаём Telegram ID пользователя в Partner API-функцию,
+    # чтобы сформировать уникальный X-Idempotency-Key.
+    try:
+        success, order_id, api_error = await send_order_to_partner(
+            product_type,
+            amount,
+            username,
+            user.id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "STARS/PREMIUM ORDER EXCEPTION | user_id=%s | type=%s | target=%s | value=%s",
+            user.id,
+            product_type,
+            username,
+            amount,
+        )
+        await query.message.edit_text(
+            f"❌ Ошибка при оформлении заказа.\n\n<code>{escape(str(exc))}</code>",
+            parse_mode="HTML",
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
 
     if not success:
-
+        error_text = api_error or "Partner API не выполнил заказ."
         await query.message.edit_text(
-
-            tr(
-                user.id,
-                "api_error",
-            )
-
+            f"❌ Не удалось выполнить заказ.\n\n{escape(str(error_text))}",
+            parse_mode="HTML",
         )
 
         context.user_data.clear()
@@ -2369,15 +2397,46 @@ async def gift_start(update, context):
     if price<=0:
         await query.message.edit_text("❌ API не вернул цену подарка.")
         return ConversationHandler.END
+
+    gifts=result.get("result") or []
+    gift_index=1
+    for idx,item in enumerate(gifts[:30],1):
+        if str(item.get("gift_id")) == str(gift_id):
+            gift_index=idx
+            break
+
+    gift_name=str(gift.get("name") or f"Подарок #{gift_index}").strip()
+    emoji_id=str(gift.get("emoji_id") or "").strip()
+
     context.user_data.clear()
     context.user_data["gift_api_id"]=str(gift_id)
     context.user_data["gift_api_price"]=price
+    context.user_data["gift_api_name"]=gift_name
+    context.user_data["gift_api_emoji_id"]=emoji_id
     keyboard=[
         [InlineKeyboardButton("👤 Отправить не анонимно",callback_data="gift_anonymous_no")],
         [InlineKeyboardButton("🕵️ Отправить анонимно",callback_data="gift_anonymous_yes")],
         [InlineKeyboardButton("❌ Отмена",callback_data="cancel_gift")],
     ]
-    await query.message.edit_text(f"🎁 <b>Подарок</b>\n\n💰 Цена: <b>{price:,} сум</b>\n\nКак отправить подарок?",reply_markup=InlineKeyboardMarkup(keyboard),parse_mode="HTML")
+    # Сначала показываем настоящий custom emoji подарка.
+    if emoji_id:
+        try:
+            await send_custom_emoji(
+                context.bot,
+                query.from_user.id,
+                "🎁",
+                emoji_id,
+            )
+        except Exception:
+            logger.exception("GIFT CUSTOM EMOJI DISPLAY ERROR | gift_id=%s | emoji_id=%s", gift_id, emoji_id)
+
+    await query.message.edit_text(
+        f"🎁 <b>{escape(gift_name)}</b>\n\n"
+        f"💰 Стоимость: <b>{price:,} сум</b>\n\n"
+        "Как отправить подарок?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
     return GIFT_SEND_TYPE
 
 async def gift_send_type(update, context):
@@ -2544,6 +2603,7 @@ async def gift_username(update, context):
     user=update.effective_user
     gift_id=str(context.user_data.get("gift_api_id") or "")
     price=int(context.user_data.get("gift_api_price") or 0)
+    gift_name=str(context.user_data.get("gift_api_name") or "Подарок").strip()
     anonymous=bool(context.user_data.get("anonymous",False))
     gift_text=str(context.user_data.get("gift_text", ""))[:200]
     if not gift_id or price<=0:
@@ -2576,7 +2636,8 @@ async def gift_username(update, context):
         await context.bot.send_message(
             ADMIN_ID,
             ("🎁 <b>НОВЫЙ API ЗАКАЗ ПОДАРКА</b>\n\n"
-             f"🎁 Gift ID: <code>{escape(gift_id)}</code>\n"
+             f"🎁 Подарок: <b>{escape(gift_name)}</b>\n"
+             f"🆔 Gift ID: <code>{escape(gift_id)}</code>\n"
              f"💰 Цена: {actual_price:,} сум\n"
              f"👤 Заказал: @{escape(user.username or 'нет username')}\n"
              f"🆔 ID: <code>{user.id}</code>\n"
@@ -2590,7 +2651,7 @@ async def gift_username(update, context):
         logger.exception("GIFT ADMIN NOTIFICATION ERROR")
     await status_msg.edit_text(
         ("✅ <b>Подарок успешно куплен!</b>\n\n"
-         f"🎁 Gift ID: <code>{escape(gift_id)}</code>\n"
+         f"🎁 Подарок: <b>{escape(gift_name)}</b>\n"
          f"👤 Получатель: @{escape(username)}\n"
          f"💰 Списано: <b>{actual_price:,} сум</b>\n"
          f"🧾 Order ID: <code>{escape(order_id or 'не указан')}</code>"),
