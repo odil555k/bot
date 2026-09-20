@@ -7,7 +7,6 @@ import threading
 import json
 import hmac
 from datetime import datetime
-from urllib.parse import urlsplit, urlunsplit
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -19,8 +18,7 @@ from telegram import (
     InlineKeyboardMarkup,
     MessageEntity,
 )
-
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden
 
 from telegram.ext import (
     Application,
@@ -40,55 +38,24 @@ from telegram.ext import (
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 
-# =========================================================
-# PARTNER API
-# =========================================================
-
+# Partner API для автоматической покупки Telegram Stars / Premium.
+# Ключ API хранится только в переменных окружения.
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
-
-# Новый endpoint Partner API
-PARTNER_API_URL = os.getenv(
+PARTNER_API_URL = os.environ.get(
     "PARTNER_API_URL",
-    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api.php"
+    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api/v2",
 ).rstrip("/")
+PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
 
-_partner_parts = urlsplit(PARTNER_API_URL)
-
-PARTNER_API_BASE_URL = urlunsplit(
-    (
-        _partner_parts.scheme,
-        _partner_parts.netloc,
-        _partner_parts.path.rstrip("/"),
-        "",
-        ""
-    )
-)
-
-PARTNER_API_TIMEOUT = float(
-    os.environ.get("PARTNER_API_TIMEOUT", "40")
-)
-
-# =========================================================
-# CARDXABAR
-# =========================================================
-
+# Секрет для связи отдельного клиента с ботом.
 CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
-
-CARDXABAR_DRY_RUN = (
-    os.environ.get(
-        "CARDXABAR_DRY_RUN",
-        "false"
-    )
-    .strip()
-    .lower()
-    in {"1", "true", "yes", "on"}
-)
+CARDXABAR_DRY_RUN = os.environ.get("CARDXABAR_DRY_RUN", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
-    "5614 6835 1772 2716"
+    "5614 6812 1542 3546"
 )
 
 PRICE_PER_STAR = 220
@@ -113,37 +80,12 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================
-# БЕЗОПАСНОЕ РЕДАКТИРОВАНИЕ СООБЩЕНИЙ
-# =========================================================
-
-async def safe_edit_text(message, text, **kwargs):
-
-    try:
-
-        return await message.edit_text(
-            text,
-            **kwargs,
-        )
-
-    except BadRequest as e:
-
-        if "Message is not modified" in str(e):
-
-            logger.info(
-                "MESSAGE NOT MODIFIED — повторное редактирование пропущено"
-            )
-
-            return None
-
-        raise
-
-
-# =========================================================
 # СОСТОЯНИЯ
 # =========================================================
 
 REFILL_AMOUNT = 1
 REFILL_CHECK = 2
+
 
 BUY_AMOUNT = 3
 BUY_USERNAME = 4
@@ -222,7 +164,7 @@ GIFTS = {
 
     7: {
         "emoji": "💐",
-        "emoji_id": "5280922999243873175",
+        "emoji_id": "5280922999241859582",
         "price": 10500,
         "stars": 50,
         "name": "Алмаз",
@@ -486,10 +428,7 @@ TEXTS = {
 
 def init_db():
 
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -504,6 +443,8 @@ def init_db():
         )
     """)
 
+    # CardXabar: ожидаемые пополнения.
+    # payment_amount — уникальная сумма, которую пользователь должен перевести.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_payments (
             payment_id TEXT PRIMARY KEY,
@@ -515,6 +456,7 @@ def init_db():
         )
     """)
 
+    # CardXabar: защита от повторной обработки одного и того же сообщения.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_transactions (
             fingerprint TEXT PRIMARY KEY,
@@ -534,10 +476,7 @@ def get_user(
     name=""
 ):
 
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -611,10 +550,7 @@ def get_user(
 
 def set_language(user_id, lang):
 
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -624,10 +560,7 @@ def set_language(user_id, lang):
         SET lang = ?
         WHERE user_id = ?
         """,
-        (
-            lang,
-            user_id,
-        ),
+        (lang, user_id),
     )
 
     conn.commit()
@@ -636,10 +569,7 @@ def set_language(user_id, lang):
 
 def change_balance(user_id, amount):
 
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -649,10 +579,7 @@ def change_balance(user_id, amount):
         SET balance = balance + ?
         WHERE user_id = ?
         """,
-        (
-            amount,
-            user_id,
-        ),
+        (amount, user_id),
     )
 
     conn.commit()
@@ -661,10 +588,7 @@ def change_balance(user_id, amount):
 
 def set_ban(user_id, value):
 
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -674,10 +598,7 @@ def set_ban(user_id, value):
         SET is_banned = ?
         WHERE user_id = ?
         """,
-        (
-            value,
-            user_id,
-        ),
+        (value, user_id),
     )
 
     conn.commit()
@@ -686,10 +607,7 @@ def set_ban(user_id, value):
 
 def get_users():
 
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
+    conn = sqlite3.connect(DB_FILE, timeout=20)
 
     cursor = conn.cursor()
 
@@ -708,42 +626,26 @@ def get_users():
     return rows
 
 
-def create_cardxabar_payment(
-    user_id,
-    requested_amount
-):
-
+def create_cardxabar_payment(user_id, requested_amount):
+    """Создаёт уникальную сумму для перевода через CardXabar."""
     if requested_amount < 1000 or requested_amount > 9_999_900:
-        raise ValueError(
-            "Сумма должна быть от 1000 до 9 999 900 сум."
-        )
+        raise ValueError("Сумма должна быть от 1000 до 9 999 900 сум.")
 
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
-
+    conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
     try:
-
         for _ in range(200):
-
+            # Двузначный суффикс: например 10000 -> 10047.
             suffix = uuid.uuid4().int % 90 + 10
-
-            payment_amount = (
-                requested_amount + suffix
-            )
+            payment_amount = requested_amount + suffix
 
             try:
-
                 payment_id = uuid.uuid4().hex
-
                 cursor.execute(
                     """
                     INSERT INTO cardxabar_payments
-                    (payment_id, user_id, requested_amount,
-                     payment_amount, status, created_at)
+                    (payment_id, user_id, requested_amount, payment_amount, status, created_at)
                     VALUES (?, ?, ?, ?, 'pending', ?)
                     """,
                     (
@@ -751,80 +653,44 @@ def create_cardxabar_payment(
                         user_id,
                         requested_amount,
                         payment_amount,
-                        datetime.now().isoformat(
-                            timespec="seconds"
-                        ),
+                        datetime.now().isoformat(timespec="seconds"),
                     ),
                 )
-
                 conn.commit()
-
-                return (
-                    payment_id,
-                    payment_amount
-                )
-
+                return payment_id, payment_amount
             except sqlite3.IntegrityError:
-
+                # Такая уникальная сумма уже занята другим ожидающим платежом.
                 conn.rollback()
-
                 continue
 
-        raise RuntimeError(
-            "Не удалось создать уникальную сумму платежа."
-        )
-
+        raise RuntimeError("Не удалось создать уникальную сумму платежа.")
     finally:
-
         conn.close()
 
 
-def get_cardxabar_payment(
-    payment_amount
-):
-
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
-
+def get_cardxabar_payment(payment_amount):
+    conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
-
     cursor.execute(
         """
-        SELECT payment_id, user_id, requested_amount,
-               payment_amount, status, created_at
+        SELECT payment_id, user_id, requested_amount, payment_amount, status, created_at
         FROM cardxabar_payments
-        WHERE payment_amount = ?
-          AND status = 'pending'
+        WHERE payment_amount = ? AND status = 'pending'
         ORDER BY created_at ASC
         LIMIT 1
         """,
         (payment_amount,),
     )
-
     row = cursor.fetchone()
-
     conn.close()
-
     return row
 
 
-def mark_cardxabar_test_transaction(
-    fingerprint,
-    payment_amount,
-    raw_text
-):
-
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=20
-    )
-
+def mark_cardxabar_test_transaction(fingerprint, payment_amount, raw_text):
+    """Записывает найденную транзакцию. Баланс НЕ меняет."""
+    conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
-
     try:
-
         cursor.execute(
             """
             INSERT INTO cardxabar_transactions
@@ -835,55 +701,33 @@ def mark_cardxabar_test_transaction(
                 fingerprint,
                 payment_amount,
                 raw_text,
-                datetime.now().isoformat(
-                    timespec="seconds"
-                ),
+                datetime.now().isoformat(timespec="seconds"),
             ),
         )
-
         conn.commit()
-
         return True
-
     except sqlite3.IntegrityError:
-
         conn.rollback()
-
         return False
-
     finally:
-
         conn.close()
 
 
-def tr(
-    user_id,
-    key,
-    **kwargs
-):
+def tr(user_id, key, **kwargs):
 
     data = get_user(user_id)
 
-    lang = data.get(
-        "lang",
-        "ru"
+    lang = data.get("lang", "ru")
+
+    text = TEXTS.get(
+        lang,
+        TEXTS["ru"],
+    ).get(
+        key,
+        key,
     )
 
-    text = (
-        TEXTS
-        .get(
-            lang,
-            TEXTS["ru"]
-        )
-        .get(
-            key,
-            key
-        )
-    )
-
-    return text.format(
-        **kwargs
-    )
+    return text.format(**kwargs)
 
 
 # =========================================================
@@ -927,58 +771,58 @@ async def check_ban(update):
 # RENDER WEB SERVER
 # =========================================================
 
-def send_json(
-    handler,
-    status,
-    payload
-):
-
-    body = json.dumps(
-        payload,
-        ensure_ascii=False
-    ).encode("utf-8")
-
+def send_json(handler, status, payload):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     handler.send_response(status)
-
-    handler.send_header(
-        "Content-Type",
-        "application/json; charset=utf-8"
-    )
-
-    handler.send_header(
-        "Content-Length",
-        str(len(body))
-    )
-
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
-
     handler.wfile.write(body)
 
 
-def notify_user_balance(
-    user_id,
-    credited_amount
-):
+async def safe_send_user_message(bot, user_id, text, **kwargs):
+    """Безопасно отправляет сообщение пользователю.
 
+    Ошибки Chat not found / bot blocked by user не должны ломать
+    админскую операцию. Другие ошибки не скрываем.
+    """
     try:
-
-        user = get_user(user_id)
-
-        lang = user.get(
-            "lang",
-            "ru"
+        await bot.send_message(
+            chat_id=user_id,
+            text=text,
+            **kwargs,
         )
+        return True
+    except BadRequest as e:
+        if "Chat not found" in str(e):
+            logger.warning(
+                "USER NOT NOTIFIED | user_id=%s | error=%s",
+                user_id,
+                e,
+            )
+            return False
+        raise
+    except Forbidden as e:
+        logger.warning(
+            "USER NOT NOTIFIED | user_id=%s | error=%s",
+            user_id,
+            e,
+        )
+        return False
 
+
+def notify_user_balance(user_id, credited_amount):
+    """Отправляет пользователю уведомление после успешного пополнения."""
+    try:
+        user = get_user(user_id)
+        lang = user.get("lang", "ru")
         if lang == "uz":
-
             text = (
                 "✅ <b>Balans muvaffaqiyatli to'ldirildi!</b>\n\n"
                 f"💰 Qo'shildi: <b>{credited_amount:,} so'm</b>\n"
                 f"💳 Joriy balans: <b>{user['balance']:,} so'm</b>"
             )
-
         else:
-
             text = (
                 "✅ <b>Баланс успешно пополнен!</b>\n\n"
                 f"💰 Зачислено: <b>{credited_amount:,} сум</b>\n"
@@ -994,241 +838,81 @@ def notify_user_balance(
             },
             timeout=15,
         )
-
         response.raise_for_status()
-
     except Exception:
-
-        logger.exception(
-            "BALANCE NOTIFICATION ERROR | user_id=%s",
-            user_id
-        )
+        logger.exception("BALANCE NOTIFICATION ERROR | user_id=%s", user_id)
 
 
 class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
-
         if self.path != "/":
-
-            send_json(
-                self,
-                404,
-                {
-                    "ok": False,
-                    "error": "Not found"
-                }
-            )
-
+            send_json(self, 404, {"ok": False, "error": "Not found"})
             return
 
         self.send_response(200)
-
-        self.send_header(
-            "Content-Type",
-            "text/plain; charset=utf-8"
-        )
-
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.end_headers()
-
-        self.wfile.write(
-            b"Bot is running!"
-        )
+        self.wfile.write(b"Bot is running!")
 
     def do_POST(self):
-
         if self.path != "/cardxabar":
-
-            send_json(
-                self,
-                404,
-                {
-                    "ok": False,
-                    "error": "Not found"
-                }
-            )
-
+            send_json(self, 404, {"ok": False, "error": "Not found"})
             return
 
-        supplied_key = self.headers.get(
-            "X-CardXabar-Key",
-            ""
-        )
-
-        if (
-            not supplied_key
-            or not hmac.compare_digest(
-                supplied_key,
-                CARDXABAR_API_KEY
-            )
-        ):
-
-            send_json(
-                self,
-                401,
-                {
-                    "ok": False,
-                    "error": "Unauthorized"
-                }
-            )
-
+        supplied_key = self.headers.get("X-CardXabar-Key", "")
+        if not supplied_key or not hmac.compare_digest(supplied_key, CARDXABAR_API_KEY):
+            send_json(self, 401, {"ok": False, "error": "Unauthorized"})
             return
 
         try:
-
-            content_length = int(
-                self.headers.get(
-                    "Content-Length",
-                    "0"
-                )
-            )
-
-            if (
-                content_length <= 0
-                or content_length > 256_000
-            ):
-
-                send_json(
-                    self,
-                    400,
-                    {
-                        "ok": False,
-                        "error": "Invalid request size"
-                    }
-                )
-
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > 256_000:
+                send_json(self, 400, {"ok": False, "error": "Invalid request size"})
                 return
 
-            raw_body = self.rfile.read(
-                content_length
-            )
+            raw_body = self.rfile.read(content_length)
+            payload = json.loads(raw_body.decode("utf-8"))
 
-            payload = json.loads(
-                raw_body.decode("utf-8")
-            )
-
-            payment_amount = int(
-                payload.get(
-                    "payment_amount",
-                    0
-                )
-            )
-
-            fingerprint = str(
-                payload.get(
-                    "fingerprint",
-                    ""
-                )
-            ).strip()
-
-            raw_text = str(
-                payload.get(
-                    "raw_text",
-                    ""
-                )
-            )[:10000]
+            payment_amount = int(payload.get("payment_amount", 0))
+            fingerprint = str(payload.get("fingerprint", "")).strip()
+            raw_text = str(payload.get("raw_text", ""))[:10000]
 
             if payment_amount <= 0:
-
-                send_json(
-                    self,
-                    400,
-                    {
-                        "ok": False,
-                        "error": "Invalid amount"
-                    }
-                )
-
+                send_json(self, 400, {"ok": False, "error": "Invalid amount"})
                 return
 
-            if (
-                not fingerprint
-                or len(fingerprint) > 128
-            ):
-
-                send_json(
-                    self,
-                    400,
-                    {
-                        "ok": False,
-                        "error": "Invalid fingerprint"
-                    }
-                )
-
+            if not fingerprint or len(fingerprint) > 128:
+                send_json(self, 400, {"ok": False, "error": "Invalid fingerprint"})
                 return
 
-        except (
-            ValueError,
-            TypeError,
-            json.JSONDecodeError,
-            UnicodeDecodeError
-        ):
-
-            send_json(
-                self,
-                400,
-                {
-                    "ok": False,
-                    "error": "Invalid JSON"
-                }
-            )
-
+        except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
+            send_json(self, 400, {"ok": False, "error": "Invalid JSON"})
             return
 
-        conn = sqlite3.connect(
-            DB_FILE,
-            timeout=20
-        )
-
+        conn = sqlite3.connect(DB_FILE, timeout=20)
         conn.row_factory = sqlite3.Row
 
-        user_id = None
-        credited_amount = None
-
         try:
-
-            conn.execute(
-                "BEGIN IMMEDIATE"
-            )
+            conn.execute("BEGIN IMMEDIATE")
 
             duplicate = conn.execute(
-                """
-                SELECT 1
-                FROM cardxabar_transactions
-                WHERE fingerprint = ?
-                LIMIT 1
-                """,
+                "SELECT 1 FROM cardxabar_transactions WHERE fingerprint = ? LIMIT 1",
                 (fingerprint,),
             ).fetchone()
 
             if duplicate:
-
                 conn.commit()
-
-                send_json(
-                    self,
-                    200,
-                    {
-                        "ok": True,
-                        "status": "duplicate"
-                    }
-                )
-
+                send_json(self, 200, {"ok": True, "status": "duplicate"})
                 return
 
             payment = conn.execute(
                 """
-                SELECT payment_id,
-                       user_id,
-                       requested_amount,
-                       payment_amount,
-                       status,
-                       created_at
+                SELECT payment_id, user_id, requested_amount, payment_amount, status, created_at
                 FROM cardxabar_payments
                 WHERE payment_amount = ?
                   AND status = 'pending'
-                  AND datetime(created_at)
-                      >= datetime('now', '-60 minutes')
+                  AND datetime(created_at) >= datetime('now', '-60 minutes')
                 ORDER BY created_at ASC
                 LIMIT 1
                 """,
@@ -1236,48 +920,22 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchone()
 
             if not payment:
-
                 conn.rollback()
-
-                send_json(
-                    self,
-                    404,
-                    {
-                        "ok": True,
-                        "status": "payment_not_found"
-                    }
-                )
-
+                send_json(self, 404, {"ok": True, "status": "payment_not_found"})
                 return
 
             user = conn.execute(
-                """
-                SELECT user_id, balance
-                FROM users
-                WHERE user_id = ?
-                """,
+                "SELECT user_id, balance FROM users WHERE user_id = ?",
                 (payment["user_id"],),
             ).fetchone()
 
             if not user:
-
                 conn.rollback()
-
-                send_json(
-                    self,
-                    404,
-                    {
-                        "ok": False,
-                        "error": "User not found"
-                    }
-                )
-
+                send_json(self, 404, {"ok": False, "error": "User not found"})
                 return
 
             if CARDXABAR_DRY_RUN:
-
                 conn.rollback()
-
                 send_json(
                     self,
                     200,
@@ -1288,9 +946,8 @@ class Handler(BaseHTTPRequestHandler):
                         "user_id": payment["user_id"],
                         "requested_amount": payment["requested_amount"],
                         "payment_amount": payment["payment_amount"],
-                    }
+                    },
                 )
-
                 return
 
             conn.execute(
@@ -1303,9 +960,7 @@ class Handler(BaseHTTPRequestHandler):
                     fingerprint,
                     payment_amount,
                     raw_text,
-                    datetime.now().isoformat(
-                        timespec="seconds"
-                    ),
+                    datetime.now().isoformat(timespec="seconds"),
                 ),
             )
 
@@ -1315,42 +970,27 @@ class Handler(BaseHTTPRequestHandler):
                 SET balance = balance + ?
                 WHERE user_id = ?
                 """,
-                (
-                    payment["requested_amount"],
-                    payment["user_id"]
-                ),
+                (payment["requested_amount"], payment["user_id"]),
             )
 
             conn.execute(
                 """
                 UPDATE cardxabar_payments
                 SET status = 'paid'
-                WHERE payment_id = ?
-                  AND status = 'pending'
+                WHERE payment_id = ? AND status = 'pending'
                 """,
-                (
-                    payment["payment_id"],
-                ),
+                (payment["payment_id"],),
             )
 
             new_balance = conn.execute(
-                """
-                SELECT balance
-                FROM users
-                WHERE user_id = ?
-                """,
-                (
-                    payment["user_id"],
-                ),
+                "SELECT balance FROM users WHERE user_id = ?",
+                (payment["user_id"],),
             ).fetchone()["balance"]
 
             conn.commit()
 
             user_id = payment["user_id"]
-
-            credited_amount = payment[
-                "requested_amount"
-            ]
+            credited_amount = payment["requested_amount"]
 
             send_json(
                 self,
@@ -1362,81 +1002,31 @@ class Handler(BaseHTTPRequestHandler):
                     "user_id": user_id,
                     "credited_amount": credited_amount,
                     "balance": new_balance,
-                }
+                },
             )
 
         except sqlite3.IntegrityError:
-
             conn.rollback()
-
-            send_json(
-                self,
-                200,
-                {
-                    "ok": True,
-                    "status": "duplicate"
-                }
-            )
-
+            send_json(self, 200, {"ok": True, "status": "duplicate"})
         except Exception:
-
             conn.rollback()
-
-            logger.exception(
-                "PAYMENT PROCESSING ERROR"
-            )
-
-            send_json(
-                self,
-                500,
-                {
-                    "ok": False,
-                    "error": "Internal server error"
-                }
-            )
-
+            logger.exception("PAYMENT PROCESSING ERROR")
+            send_json(self, 500, {"ok": False, "error": "Internal server error"})
         finally:
-
             conn.close()
 
-        if (
-            not CARDXABAR_DRY_RUN
-            and user_id is not None
-            and credited_amount is not None
-        ):
+        # Уведомление отправляется только после успешного commit.
+        if not CARDXABAR_DRY_RUN and 'user_id' in locals() and 'credited_amount' in locals():
+            notify_user_balance(user_id, credited_amount)
 
-            notify_user_balance(
-                user_id,
-                credited_amount
-            )
-
-    def log_message(
-        self,
-        format,
-        *args
-    ):
+    def log_message(self, format, *args):
         return
 
 
 def run_web():
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            8080
-        )
-    )
-
-    server = ThreadingHTTPServer(
-        ("0.0.0.0", port),
-        Handler
-    )
-
-    logger.info(
-        "WEB SERVER STARTED ON PORT %s",
-        port
-    )
-
+    port = int(os.environ.get("PORT", 8080))
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    logger.info("WEB SERVER STARTED ON PORT %s", port)
     server.serve_forever()
 
 
@@ -1450,20 +1040,14 @@ def main_keyboard(user_id):
 
         [
             InlineKeyboardButton(
-                tr(
-                    user_id,
-                    "services"
-                ),
+                tr(user_id, "services"),
                 callback_data="main_shop",
             )
         ],
 
         [
             InlineKeyboardButton(
-                tr(
-                    user_id,
-                    "refill"
-                ),
+                tr(user_id, "refill"),
                 callback_data="main_refill",
             ),
 
@@ -1475,10 +1059,7 @@ def main_keyboard(user_id):
 
         [
             InlineKeyboardButton(
-                tr(
-                    user_id,
-                    "language"
-                ),
+                tr(user_id, "language"),
                 callback_data="language_menu",
             )
         ],
@@ -1490,15 +1071,11 @@ def main_keyboard(user_id):
 # START
 # =========================================================
 
-async def start(
-    update,
-    context
-):
+async def start(update, context):
 
     context.user_data.clear()
 
     if await check_ban(update):
-
         return ConversationHandler.END
 
     user = update.effective_user
@@ -1518,9 +1095,7 @@ async def start(
             balance=data["balance"],
         ),
 
-        reply_markup=main_keyboard(
-            user.id
-        ),
+        reply_markup=main_keyboard(user.id),
 
         parse_mode="HTML",
 
@@ -1531,10 +1106,7 @@ async def start(
 # ПРОФИЛЬ
 # =========================================================
 
-async def profile_callback(
-    update,
-    context
-):
+async def profile_callback(update, context):
 
     query = update.callback_query
 
@@ -1548,19 +1120,13 @@ async def profile_callback(
         user.first_name,
     )
 
-    username = (
-        user.username
-        or "нет username"
-    )
+    username = user.username or "нет username"
 
     keyboard = InlineKeyboardMarkup([
 
         [
             InlineKeyboardButton(
-                tr(
-                    user.id,
-                    "back"
-                ),
+                tr(user.id, "back"),
                 callback_data="back_main",
             )
         ]
@@ -1579,11 +1145,14 @@ async def profile_callback(
 
     )
 
-    await safe_edit_text(
-        query.message,
+    await query.message.edit_text(
+
         text,
+
         reply_markup=keyboard,
+
         parse_mode="HTML",
+
     )
 
 
@@ -1591,10 +1160,7 @@ async def profile_callback(
 # ГЛАВНЫЕ КНОПКИ
 # =========================================================
 
-async def main_buttons(
-    update,
-    context
-):
+async def main_buttons(update, context):
 
     if await check_ban(update):
         return
@@ -1611,15 +1177,10 @@ async def main_buttons(
         user.first_name,
     )
 
-    # -------------------------
-    # НАЗАД
-    # -------------------------
 
     if query.data == "back_main":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             tr(
                 user.id,
@@ -1628,9 +1189,7 @@ async def main_buttons(
                 balance=data["balance"],
             ),
 
-            reply_markup=main_keyboard(
-                user.id
-            ),
+            reply_markup=main_keyboard(user.id),
 
             parse_mode="HTML",
 
@@ -1638,9 +1197,6 @@ async def main_buttons(
 
         return
 
-    # -------------------------
-    # ЯЗЫК
-    # -------------------------
 
     if query.data == "language_menu":
 
@@ -1662,25 +1218,18 @@ async def main_buttons(
 
             [
                 InlineKeyboardButton(
-                    tr(
-                        user.id,
-                        "back"
-                    ),
+                    tr(user.id, "back"),
                     callback_data="back_main",
                 )
             ],
 
         ]
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             "🌐 <b>Выберите язык / Tilni tanlang</b>",
 
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
+            reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
 
@@ -1688,9 +1237,6 @@ async def main_buttons(
 
         return
 
-    # -------------------------
-    # МАГАЗИН
-    # -------------------------
 
     if query.data == "main_shop":
 
@@ -1716,31 +1262,20 @@ async def main_buttons(
                     callback_data="shop_gifts",
                 )
             ],
-
             [
                 InlineKeyboardButton(
-                    tr(
-                        user.id,
-                        "back"
-                    ),
+                    tr(user.id, "back"),
                     callback_data="back_main",
                 )
             ],
 
         ]
 
-        await safe_edit_text(
+        await query.message.edit_text(
 
-            query.message,
+            tr(user.id, "shop"),
 
-            tr(
-                user.id,
-                "shop"
-            ),
-
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
+            reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
 
@@ -1748,9 +1283,6 @@ async def main_buttons(
 
         return
 
-    # -------------------------
-    # STARS
-    # -------------------------
 
     if query.data == "shop_stars":
 
@@ -1779,19 +1311,14 @@ async def main_buttons(
 
             [
                 InlineKeyboardButton(
-                    tr(
-                        user.id,
-                        "back"
-                    ),
+                    tr(user.id, "back"),
                     callback_data="main_shop",
                 )
             ],
 
         ]
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             tr(
                 user.id,
@@ -1799,9 +1326,7 @@ async def main_buttons(
                 price=PRICE_PER_STAR,
             ),
 
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
+            reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
 
@@ -1809,9 +1334,6 @@ async def main_buttons(
 
         return
 
-    # -------------------------
-    # PREMIUM
-    # -------------------------
 
     if query.data == "shop_premium":
 
@@ -1840,28 +1362,18 @@ async def main_buttons(
 
             [
                 InlineKeyboardButton(
-                    tr(
-                        user.id,
-                        "back"
-                    ),
+                    tr(user.id, "back"),
                     callback_data="main_shop",
                 )
             ],
 
         ]
 
-        await safe_edit_text(
+        await query.message.edit_text(
 
-            query.message,
+            tr(user.id, "premium"),
 
-            tr(
-                user.id,
-                "premium"
-            ),
-
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
+            reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
 
@@ -1869,9 +1381,6 @@ async def main_buttons(
 
         return
 
-    # -------------------------
-    # ПОДАРКИ
-    # -------------------------
 
     if query.data == "shop_gifts":
 
@@ -1896,10 +1405,7 @@ async def main_buttons(
 
             InlineKeyboardButton(
 
-                tr(
-                    user.id,
-                    "back"
-                ),
+                tr(user.id, "back"),
 
                 callback_data="main_shop",
 
@@ -1907,18 +1413,11 @@ async def main_buttons(
 
         ])
 
-        await safe_edit_text(
+        await query.message.edit_text(
 
-            query.message,
+            tr(user.id, "gifts"),
 
-            tr(
-                user.id,
-                "gifts"
-            ),
-
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
+            reply_markup=InlineKeyboardMarkup(keyboard),
 
             parse_mode="HTML",
 
@@ -1931,10 +1430,7 @@ async def main_buttons(
 # ЯЗЫК
 # =========================================================
 
-async def language_callback(
-    update,
-    context
-):
+async def language_callback(update, context):
 
     query = update.callback_query
 
@@ -1944,29 +1440,26 @@ async def language_callback(
 
     set_language(
         user_id,
-        "ru"
-        if query.data == "lang_ru"
-        else "uz",
+        "ru" if query.data == "lang_ru" else "uz",
     )
 
-    data = get_user(
-        user_id
-    )
+    data = get_user(user_id)
 
-    await safe_edit_text(
-
-        query.message,
+    await query.message.edit_text(
 
         tr(
+
             user_id,
+
             "welcome",
+
             name=query.from_user.first_name,
+
             balance=data["balance"],
+
         ),
 
-        reply_markup=main_keyboard(
-            user_id
-        ),
+        reply_markup=main_keyboard(user_id),
 
         parse_mode="HTML",
 
@@ -1974,74 +1467,58 @@ async def language_callback(
 
 
 # =========================================================
-# PARTNER API
+# TELEGRAM STARS & PREMIUM PARTNER API
 # =========================================================
 
-async def partner_api_request(
-    action,
-    method="GET",
-    payload=None
-):
+async def partner_api_request(action, method="GET", payload=None):
+    """
+    Универсальный запрос к Partner API.
+
+    Авторизация:
+        X-API-Key: PARTNER_API_KEY
+
+    Поддерживаемые действия по документации:
+        api_info
+        api_services
+        api_create_order
+    """
+    url = f"{PARTNER_API_URL}?action={action}"
 
     headers = {
         "X-API-Key": PARTNER_API_KEY,
         "Accept": "application/json",
     }
 
-    params = {
-        "action": action
-    }
-
     try:
-
-        async with httpx.AsyncClient(
-            timeout=PARTNER_API_TIMEOUT,
-            follow_redirects=True
-        ) as client:
-
+        async with httpx.AsyncClient(timeout=PARTNER_API_TIMEOUT) as client:
             if method.upper() == "POST":
-
-                headers[
-                    "Content-Type"
-                ] = "application/json"
-
+                headers["Content-Type"] = "application/json"
                 response = await client.post(
-                    PARTNER_API_BASE_URL,
-                    params=params,
+                    url,
                     headers=headers,
                     json=payload or {},
                 )
-
             else:
-
                 response = await client.get(
-                    PARTNER_API_BASE_URL,
-                    params=params,
+                    url,
                     headers=headers,
                 )
 
         logger.info(
-            "PARTNER API RESPONSE | action=%s | HTTP=%s | URL=%s | BODY=%s",
+            "PARTNER API RESPONSE | action=%s | HTTP=%s | BODY=%s",
             action,
             response.status_code,
-            str(response.url),
             response.text[:2000],
         )
 
         try:
-
             data = response.json()
-
         except Exception:
-
             logger.error(
-                "PARTNER API RETURNED NON-JSON | action=%s | HTTP=%s | URL=%s | BODY=%s",
+                "PARTNER API RETURNED NON-JSON | action=%s | BODY=%s",
                 action,
-                response.status_code,
-                str(response.url),
                 response.text[:2000],
             )
-
             return {
                 "success": False,
                 "error": "API returned invalid JSON",
@@ -2049,26 +1526,17 @@ async def partner_api_request(
             }
 
         if not isinstance(data, dict):
-
             return {
                 "success": False,
                 "error": "API returned invalid response",
                 "_http_status": response.status_code,
             }
 
-        data["_http_status"] = (
-            response.status_code
-        )
-
+        data["_http_status"] = response.status_code
         return data
 
     except httpx.TimeoutException:
-
-        logger.error(
-            "PARTNER API TIMEOUT | action=%s",
-            action
-        )
-
+        logger.error("PARTNER API TIMEOUT | action=%s", action)
         return {
             "success": False,
             "error": "API timeout",
@@ -2076,13 +1544,7 @@ async def partner_api_request(
         }
 
     except httpx.HTTPError as e:
-
-        logger.error(
-            "PARTNER API HTTP ERROR | action=%s | error=%s",
-            action,
-            e
-        )
-
+        logger.error("PARTNER API HTTP ERROR | action=%s | error=%s", action, e)
         return {
             "success": False,
             "error": str(e),
@@ -2090,13 +1552,7 @@ async def partner_api_request(
         }
 
     except Exception as e:
-
-        logger.exception(
-            "PARTNER API ERROR | action=%s | error=%s",
-            action,
-            e
-        )
-
+        logger.exception("PARTNER API ERROR | action=%s | error=%s", action, e)
         return {
             "success": False,
             "error": str(e),
@@ -2105,31 +1561,32 @@ async def partner_api_request(
 
 
 async def partner_api_info():
-
-    return await partner_api_request(
-        "api_info",
-        "GET"
-    )
+    """Получает баланс и информацию профиля Partner API."""
+    return await partner_api_request("api_info", "GET")
 
 
 async def partner_api_services():
-
-    return await partner_api_request(
-        "api_services",
-        "GET"
-    )
+    """Получает список услуг и текущие цены Partner API."""
+    return await partner_api_request("api_services", "GET")
 
 
-async def send_order_to_partner(
-    product_type,
-    value,
-    target
-):
+async def send_order_to_partner(product_type, value, target):
+    """
+    Создаёт заказ Stars или Premium через новый Partner API.
 
-    target = target.strip().lstrip("@")
+    Stars:
+        service=stars
+        target=username
+        quantity=stars
+
+    Premium:
+        service=premium
+        target=username
+        months=3/6/12
+    """
+    target = target.replace("@", "").strip()
 
     if product_type == "stars":
-
         payload = {
             "service": "stars",
             "target": target,
@@ -2137,20 +1594,20 @@ async def send_order_to_partner(
         }
 
     elif product_type == "premium":
+        months = int(value)
+
+        if months not in {3, 6, 12}:
+            logger.error("INVALID PREMIUM MONTHS: %s", months)
+            return False, None
 
         payload = {
             "service": "premium",
             "target": target,
-            "months": int(value),
+            "months": months,
         }
 
     else:
-
-        logger.error(
-            "UNKNOWN PARTNER PRODUCT TYPE: %s",
-            product_type
-        )
-
+        logger.error("UNKNOWN PRODUCT TYPE: %s", product_type)
         return False, None
 
     result = await partner_api_request(
@@ -2159,20 +1616,27 @@ async def send_order_to_partner(
         payload=payload,
     )
 
-    if result.get("success") is True:
+    success = result.get("success") is True
+    order_id = result.get("order_id")
 
-        return (
-            True,
-            result.get("order_id")
+    if success:
+        logger.info(
+            "PARTNER ORDER SUCCESS | type=%s | target=%s | value=%s | order_id=%s",
+            product_type,
+            target,
+            value,
+            order_id,
         )
+        return True, order_id
 
     logger.error(
-        "PARTNER ORDER FAILED | type=%s | target=%s | value=%s | HTTP=%s | error=%s",
+        "PARTNER ORDER FAILED | type=%s | target=%s | value=%s | "
+        "HTTP=%s | error=%s",
         product_type,
         target,
         value,
         result.get("_http_status"),
-        result.get("error"),
+        result.get("error", "Unknown error"),
     )
 
     return False, None
@@ -2181,101 +1645,58 @@ async def send_order_to_partner(
 # =========================================================
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
-
-async def buy_start(
-    update,
-    context
-):
+async def buy_start(update, context):
 
     query = update.callback_query
-
     await query.answer()
 
     context.user_data.clear()
 
     data = query.data
 
-    # -------------------------
-    # Stars — ручное количество
-    # -------------------------
-
+    # Покупка Stars: ввод своего количества
     if data == "buy_stars":
 
-        context.user_data[
-            "product_type"
-        ] = "stars"
+        context.user_data["product_type"] = "stars"
 
-        await safe_edit_text(
-
-            query.message,
-
+        await query.message.edit_text(
             tr(
                 query.from_user.id,
                 "enter_stars",
             )
-
         )
 
         return BUY_AMOUNT
 
-    # -------------------------
-    # Stars — готовый вариант
-    # -------------------------
+    # Покупка Stars: готовые варианты
+    if data.startswith("buy_stars_"):
 
-    if data.startswith(
-        "buy_stars_"
-    ):
+        amount = int(data.split("_")[2])
 
-        amount = int(
-            data.split("_")[2]
-        )
+        context.user_data["product_type"] = "stars"
+        context.user_data["amount"] = amount
 
-        context.user_data[
-            "product_type"
-        ] = "stars"
-
-        context.user_data[
-            "amount"
-        ] = amount
-
-        await safe_edit_text(
-
-            query.message,
-
-            f"⭐ Вы выбрали {amount} Stars.\n\n"
-            "Введите @username Telegram:"
-
+        await query.message.edit_text(
+            f"⭐ Вы выбрали {amount} Stars.\n\nВведите @username Telegram:"
         )
 
         return BUY_USERNAME
 
-    # -------------------------
-    # Premium
-    # -------------------------
+    # Покупка Premium
 
-    if data.startswith(
-        "buy_premium_"
-    ):
+
+    if data.startswith("buy_premium_"):
 
         months = int(
             data.split("_")[2]
         )
 
-        context.user_data[
-            "product_type"
-        ] = "premium"
+        context.user_data["product_type"] = "premium"
 
-        context.user_data[
-            "amount"
-        ] = months
+        context.user_data["amount"] = months
+        context.user_data["months"] = months
 
-        context.user_data[
-            "months"
-        ] = months
-
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             tr(
                 query.from_user.id,
@@ -2286,13 +1707,11 @@ async def buy_start(
 
         return BUY_USERNAME
 
+
     return ConversationHandler.END
 
 
-async def buy_amount(
-    update,
-    context
-):
+async def buy_amount(update, context):
 
     text = update.message.text.strip()
 
@@ -2314,9 +1733,7 @@ async def buy_amount(
 
         return BUY_AMOUNT
 
-    context.user_data[
-        "amount"
-    ] = amount
+    context.user_data["amount"] = amount
 
     await update.message.reply_text(
 
@@ -2330,17 +1747,11 @@ async def buy_amount(
     return BUY_USERNAME
 
 
-async def buy_username(
-    update,
-    context
-):
+async def buy_username(update, context):
 
     username = update.message.text.strip()
 
-    username = username.replace(
-        "@",
-        ""
-    )
+    username = username.replace("@", "")
 
     if not re.fullmatch(
         r"[A-Za-z0-9_]{5,32}",
@@ -2365,35 +1776,18 @@ async def buy_username(
 
     if product_type == "stars":
 
-        price = (
-            amount
-            * PRICE_PER_STAR
-        )
+        price = amount * PRICE_PER_STAR
 
-        product = (
-            f"{amount} Stars"
-        )
+        product = f"{amount} Stars"
 
     else:
 
-        price = PREMIUM_PRICES.get(
-            amount
-        )
+        price = PREMIUM_PRICES.get(amount)
 
         product = (
             f"Telegram Premium на "
             f"{amount} мес."
         )
-
-    if price is None:
-
-        await update.message.reply_text(
-            "❌ Ошибка определения цены."
-        )
-
-        context.user_data.clear()
-
-        return ConversationHandler.END
 
     data = get_user(
         user.id,
@@ -2406,10 +1800,15 @@ async def buy_username(
         await update.message.reply_text(
 
             tr(
+
                 user.id,
+
                 "not_enough",
+
                 price=price,
+
                 balance=data["balance"],
+
             )
 
         )
@@ -2418,17 +1817,11 @@ async def buy_username(
 
         return ConversationHandler.END
 
-    context.user_data[
-        "username"
-    ] = username
+    context.user_data["username"] = username
 
-    context.user_data[
-        "price"
-    ] = price
+    context.user_data["price"] = price
 
-    context.user_data[
-        "product"
-    ] = product
+    context.user_data["product"] = product
 
     keyboard = [
 
@@ -2451,16 +1844,20 @@ async def buy_username(
     await update.message.reply_text(
 
         tr(
+
             user.id,
+
             "confirm_order",
+
             product=product,
+
             username=username,
+
             price=price,
+
         ),
 
-        reply_markup=InlineKeyboardMarkup(
-            keyboard
-        ),
+        reply_markup=InlineKeyboardMarkup(keyboard),
 
         parse_mode="HTML",
 
@@ -2469,10 +1866,7 @@ async def buy_username(
     return BUY_CONFIRM
 
 
-async def buy_confirm(
-    update,
-    context
-):
+async def buy_confirm(update, context):
 
     query = update.callback_query
 
@@ -2484,9 +1878,7 @@ async def buy_confirm(
 
         context.user_data.clear()
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             tr(
                 user.id,
@@ -2497,71 +1889,17 @@ async def buy_confirm(
 
         return ConversationHandler.END
 
-    product_type = context.user_data.get(
-        "product_type"
-    )
+    product_type = context.user_data["product_type"]
 
-    amount = context.user_data.get(
-        "amount"
-    )
+    amount = context.user_data["amount"]
 
-    username = context.user_data.get(
-        "username"
-    )
+    username = context.user_data["username"]
 
-    price = context.user_data.get(
-        "price"
-    )
+    price = context.user_data["price"]
 
-    product = context.user_data.get(
-        "product"
-    )
+    product = context.user_data["product"]
 
-    if not all([
-        product_type,
-        amount,
-        username,
-        price,
-        product,
-    ]):
-
-        await safe_edit_text(
-            query.message,
-            "❌ Данные заказа потеряны. Начните покупку заново."
-        )
-
-        context.user_data.clear()
-
-        return ConversationHandler.END
-
-    current_user = get_user(
-        user.id,
-        user.username,
-        user.first_name,
-    )
-
-    if current_user["balance"] < price:
-
-        await safe_edit_text(
-
-            query.message,
-
-            tr(
-                user.id,
-                "not_enough",
-                price=price,
-                balance=current_user["balance"],
-            )
-
-        )
-
-        context.user_data.clear()
-
-        return ConversationHandler.END
-
-    await safe_edit_text(
-
-        query.message,
+    await query.message.edit_text(
 
         tr(
             user.id,
@@ -2570,19 +1908,19 @@ async def buy_confirm(
 
     )
 
-    success, order_id = (
-        await send_order_to_partner(
-            product_type,
-            amount,
-            username,
-        )
+    success, order_id = await send_order_to_partner(
+
+        product_type,
+
+        amount,
+
+        username,
+
     )
 
     if not success:
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             tr(
                 user.id,
@@ -2600,59 +1938,43 @@ async def buy_confirm(
         -price,
     )
 
-    try:
+    await context.bot.send_message(
 
-        await context.bot.send_message(
-
-            ADMIN_ID,
-
-            (
-                "🛒 <b>НОВЫЙ ЗАКАЗ</b>\n\n"
-
-                f"📦 Товар: "
-                f"{escape(product)}\n"
-
-                f"👤 Получатель: "
-                f"@{escape(username)}\n"
-
-                f"💰 Цена: "
-                f"{price:,} сум\n"
-
-                f"🧾 Order ID: "
-                f"<code>{escape(str(order_id or 'не указан'))}</code>\n"
-
-                f"🆔 ID заказчика: "
-                f"<code>{user.id}</code>\n"
-
-                f"👤 Заказал: "
-                f"@{escape(user.username or 'нет username')}"
-
-            ),
-
-            parse_mode="HTML",
-
-        )
-
-    except Exception:
-
-        logger.exception(
-            "ADMIN ORDER NOTIFICATION ERROR"
-        )
-
-    await safe_edit_text(
-
-        query.message,
+        ADMIN_ID,
 
         (
+
+            "🛒 <b>НОВЫЙ ЗАКАЗ</b>\n\n"
+
+            f"📦 Товар: {escape(product)}\n"
+
+            f"👤 Получатель: @{escape(username)}\n"
+
+            f"💰 Цена: {price:,} сум\n"
+            f"🧾 Order ID: <code>{escape(str(order_id or 'не указан'))}</code>\n"
+
+            f"🆔 ID заказчика: "
+            f"<code>{user.id}</code>\n"
+
+            f"👤 Заказал: "
+            f"@{escape(user.username or 'нет username')}"
+
+        ),
+
+        parse_mode="HTML",
+
+    )
+
+    await query.message.edit_text(
+
+        (
+
             "✅ <b>Заказ успешно выполнен!</b>\n\n"
 
             f"📦 {escape(product)}\n"
+            f"👤 Получатель: @{escape(username)}\n"
+            f"🧾 Order ID: <code>{escape(str(order_id or 'не указан'))}</code>"
 
-            f"👤 Получатель: "
-            f"@{escape(username)}\n"
-
-            f"🧾 Order ID: "
-            f"<code>{escape(str(order_id or 'не указан'))}</code>"
         ),
 
         parse_mode="HTML",
@@ -2668,106 +1990,64 @@ async def buy_confirm(
 # ПОПОЛНЕНИЕ
 # =========================================================
 
-async def refill_start(
-    update,
-    context
-):
-
+async def refill_start(update, context):
     query = update.callback_query
-
     await query.answer()
-
     context.user_data.clear()
 
-    await safe_edit_text(
-
-        query.message,
-
+    await query.message.edit_text(
         tr(
             query.from_user.id,
             "refill_enter",
         )
-
     )
 
     return REFILL_AMOUNT
 
 
-async def refill_amount(
-    update,
-    context
-):
-
-    text = (
-        update.message.text
-        .replace(" ", "")
-        .replace("_", "")
-    )
+async def refill_amount(update, context):
+    text = update.message.text.replace(" ", "").replace("_", "")
 
     if not text.isdigit():
-
         await update.message.reply_text(
             "❌ Введите корректную сумму цифрами. Например: 10000"
         )
-
         return REFILL_AMOUNT
 
     amount = int(text)
 
+    # Для уникальной суммы нужно оставить место под суффикс 10–99.
     if amount < 1000:
-
         await update.message.reply_text(
             "❌ Минимальная сумма пополнения — 1 000 сум."
         )
-
         return REFILL_AMOUNT
 
     if amount > 9_999_900:
-
         await update.message.reply_text(
             "❌ Максимальная сумма для этого способа — 9 999 900 сум."
         )
-
         return REFILL_AMOUNT
 
     user = update.effective_user
 
     try:
-
-        payment_id, payment_amount = (
-            create_cardxabar_payment(
-                user.id,
-                amount,
-            )
+        payment_id, payment_amount = create_cardxabar_payment(
+            user.id,
+            amount,
         )
-
     except Exception as e:
-
-        logger.exception(
-            "CARDXABAR PAYMENT CREATE ERROR: %s",
-            e
-        )
-
+        logger.exception("CARDXABAR PAYMENT CREATE ERROR: %s", e)
         await update.message.reply_text(
             "❌ Не удалось создать платёж. Попробуйте ещё раз."
         )
-
         return REFILL_AMOUNT
 
-    context.user_data[
-        "cardxabar_payment_id"
-    ] = payment_id
-
-    context.user_data[
-        "refill_amount"
-    ] = amount
-
-    context.user_data[
-        "payment_amount"
-    ] = payment_amount
+    context.user_data["cardxabar_payment_id"] = payment_id
+    context.user_data["refill_amount"] = amount
+    context.user_data["payment_amount"] = payment_amount
 
     await update.message.reply_text(
-
         tr(
             user.id,
             "refill_payment",
@@ -2775,9 +2055,7 @@ async def refill_amount(
             payment_amount=payment_amount,
             card=CARD_NUMBER,
         ),
-
         parse_mode="HTML",
-
     )
 
     logger.info(
@@ -2789,14 +2067,10 @@ async def refill_amount(
     )
 
     context.user_data.clear()
-
     return ConversationHandler.END
 
 
-async def refill_check(
-    update,
-    context
-):
+async def refill_check(update, context):
 
     if not update.message.photo:
 
@@ -2815,7 +2089,7 @@ async def refill_check(
 
     amount = context.user_data.get(
         "refill_amount",
-        0
+        0,
     )
 
     photo = update.message.photo[-1]
@@ -2829,8 +2103,7 @@ async def refill_check(
 
         f"🆔 ID: <code>{user.id}</code>\n"
 
-        f"💰 Сумма: "
-        f"<b>{amount:,} сум</b>"
+        f"💰 Сумма: <b>{amount:,} сум</b>"
 
     )
 
@@ -2890,134 +2163,63 @@ async def refill_check(
     return ConversationHandler.END
 
 
-async def payment_callback(
-    update,
-    context
-):
+async def payment_callback(update, context):
 
     query = update.callback_query
 
     if query.from_user.id != ADMIN_ID:
-
-        await query.answer(
-            "❌ Нет доступа.",
-            show_alert=True
-        )
-
+        await query.answer("❌ Нет доступа.", show_alert=True)
         return
 
     await query.answer()
 
     parts = query.data.split("_")
 
-    if query.data.startswith(
-        "approve_refill_"
-    ):
+    if query.data.startswith("approve_refill_"):
 
-        user_id = int(
-            parts[2]
-        )
+        user_id = int(parts[2])
+        amount = int(parts[3])
 
-        amount = int(
-            parts[3]
-        )
+        change_balance(user_id, amount)
 
-        change_balance(
+        await safe_send_user_message(
+            context.bot,
             user_id,
-            amount
+            (
+                "✅ <b>Баланс пополнен!</b>\n\n"
+                f"💰 Сумма: {amount:,} сум"
+            ),
+            parse_mode="HTML",
         )
 
-        try:
-
-            await context.bot.send_message(
-
-                user_id,
-
-                (
-                    "✅ <b>Баланс пополнен!</b>\n\n"
-                    f"💰 Сумма: {amount:,} сум"
-                ),
-
-                parse_mode="HTML",
-
-            )
-
-        except Exception:
-
-            logger.exception(
-                "FAILED TO NOTIFY USER ABOUT MANUAL REFILL"
-            )
-
-        try:
-
-            await query.edit_message_caption(
-
-                caption=(
-                    query.message.caption or ""
-                )
-                + "\n\n✅ ОДОБРЕНО",
-
-                parse_mode="HTML",
-
-                reply_markup=None,
-
-            )
-
-        except BadRequest as e:
-
-            if "Message is not modified" not in str(e):
-                raise
-
-    elif query.data.startswith(
-        "reject_refill_"
-    ):
-
-        user_id = int(
-            parts[2]
+        await query.edit_message_caption(
+            caption=(query.message.caption or "") + "\n\n✅ ОДОБРЕНО",
+            parse_mode="HTML",
+            reply_markup=None,
         )
 
-        try:
+    elif query.data.startswith("reject_refill_"):
 
-            await context.bot.send_message(
-                user_id,
-                "❌ Пополнение отклонено.",
-            )
+        user_id = int(parts[2])
 
-        except Exception:
+        await safe_send_user_message(
+            context.bot,
+            user_id,
+            "❌ Пополнение отклонено.",
+        )
 
-            logger.exception(
-                "FAILED TO NOTIFY USER ABOUT REFILL REJECTION"
-            )
-
-        try:
-
-            await query.edit_message_caption(
-
-                caption=(
-                    query.message.caption or ""
-                )
-                + "\n\n❌ ОТКЛОНЕНО",
-
-                parse_mode="HTML",
-
-                reply_markup=None,
-
-            )
-
-        except BadRequest as e:
-
-            if "Message is not modified" not in str(e):
-                raise
+        await query.edit_message_caption(
+            caption=(query.message.caption or "") + "\n\n❌ ОТКЛОНЕНО",
+            parse_mode="HTML",
+            reply_markup=None,
+        )
 
 
 # =========================================================
 # ПОДАРКИ
 # =========================================================
 
-async def gift_start(
-    update,
-    context
-):
+async def gift_start(update, context):
 
     query = update.callback_query
 
@@ -3029,9 +2231,7 @@ async def gift_start(
 
     context.user_data.clear()
 
-    context.user_data[
-        "gift_id"
-    ] = gift_id
+    context.user_data["gift_id"] = gift_id
 
     keyboard = [
 
@@ -3073,18 +2273,14 @@ async def gift_start(
 
     ]
 
-    await safe_edit_text(
-
-        query.message,
+    await query.message.edit_text(
 
         tr(
             query.from_user.id,
             "gift_send_type",
         ),
 
-        reply_markup=InlineKeyboardMarkup(
-            keyboard
-        ),
+        reply_markup=InlineKeyboardMarkup(keyboard),
 
         parse_mode="HTML",
 
@@ -3093,10 +2289,7 @@ async def gift_start(
     return GIFT_SEND_TYPE
 
 
-async def gift_send_type(
-    update,
-    context
-):
+async def gift_send_type(update, context):
 
     query = update.callback_query
 
@@ -3104,16 +2297,12 @@ async def gift_send_type(
 
     if query.data == "cancel_gift":
 
-        return await cancel(
-            update,
-            context
-        )
+        return await cancel(update, context)
 
-    context.user_data[
-        "anonymous"
-    ] = (
-        query.data
-        == "gift_anonymous_yes"
+    context.user_data["anonymous"] = (
+
+        query.data == "gift_anonymous_yes"
+
     )
 
     keyboard = [
@@ -3156,15 +2345,11 @@ async def gift_send_type(
 
     ]
 
-    await safe_edit_text(
-
-        query.message,
+    await query.message.edit_text(
 
         "📝 <b>Добавить текст к подарку?</b>",
 
-        reply_markup=InlineKeyboardMarkup(
-            keyboard
-        ),
+        reply_markup=InlineKeyboardMarkup(keyboard),
 
         parse_mode="HTML",
 
@@ -3173,10 +2358,7 @@ async def gift_send_type(
     return GIFT_TEXT
 
 
-async def gift_text_choice(
-    update,
-    context
-):
+async def gift_text_choice(update, context):
 
     query = update.callback_query
 
@@ -3184,16 +2366,11 @@ async def gift_text_choice(
 
     if query.data == "cancel_gift":
 
-        return await cancel(
-            update,
-            context
-        )
+        return await cancel(update, context)
 
     if query.data == "gift_text_yes":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             tr(
                 query.from_user.id,
@@ -3204,13 +2381,9 @@ async def gift_text_choice(
 
         return GIFT_TEXT
 
-    context.user_data[
-        "gift_text"
-    ] = ""
+    context.user_data["gift_text"] = ""
 
-    await safe_edit_text(
-
-        query.message,
+    await query.message.edit_text(
 
         tr(
             query.from_user.id,
@@ -3222,14 +2395,9 @@ async def gift_text_choice(
     return GIFT_USERNAME
 
 
-async def gift_text_input(
-    update,
-    context
-):
+async def gift_text_input(update, context):
 
-    context.user_data[
-        "gift_text"
-    ] = (
+    context.user_data["gift_text"] = (
         update.message.text.strip()
     )
 
@@ -3249,7 +2417,7 @@ async def send_custom_emoji(
     bot,
     chat_id,
     emoji,
-    emoji_id
+    emoji_id,
 ):
 
     await bot.send_message(
@@ -3277,41 +2445,42 @@ async def send_custom_emoji(
     )
 
 
-async def gift_username(
-    update,
-    context
-):
+async def gift_username(update, context):
 
     username = update.message.text.strip()
 
-    username = username.replace(
-        "@",
-        ""
-    )
+    username = username.replace("@", "")
 
     if not re.fullmatch(
+
         r"[A-Za-z0-9_]{5,32}",
+
         username,
+
     ):
 
         await update.message.reply_text(
+
             "❌ Введите корректный юзернейм."
+
         )
 
         return GIFT_USERNAME
 
     user = update.effective_user
 
-    gift_id = context.user_data[
-        "gift_id"
-    ]
+    gift_id = context.user_data["gift_id"]
 
     gift = GIFTS[gift_id]
 
     data = get_user(
+
         user.id,
+
         user.username,
+
         user.first_name,
+
     )
 
     if data["balance"] < gift["price"]:
@@ -3319,10 +2488,15 @@ async def gift_username(
         await update.message.reply_text(
 
             tr(
+
                 user.id,
+
                 "not_enough",
+
                 price=gift["price"],
+
                 balance=data["balance"],
+
             )
 
         )
@@ -3332,25 +2506,39 @@ async def gift_username(
         return ConversationHandler.END
 
     anonymous = context.user_data.get(
+
         "anonymous",
-        False
+
+        False,
+
     )
 
     gift_text = context.user_data.get(
+
         "gift_text",
-        ""
+
+        "",
+
     )
 
     change_balance(
+
         user.id,
-        -gift["price"]
+
+        -gift["price"],
+
     )
 
     sender = (
+
         "Анонимно"
+
         if anonymous
+
         else
+
         f"@{user.username or 'нет username'}"
+
     )
 
     await send_custom_emoji(
@@ -3376,17 +2564,14 @@ async def gift_username(
             f"🎁 Подарок: "
             f"<b>{escape(gift['name'])}</b>\n"
 
-            f"💰 Цена: "
-            f"{gift['price']:,} сум\n\n"
+            f"💰 Цена: {gift['price']:,} сум\n\n"
 
-            f"👤 Заказал: "
-            f"{escape(sender)}\n"
+            f"👤 Заказал: {escape(sender)}\n"
 
             f"🆔 ID заказчика: "
             f"<code>{user.id}</code>\n\n"
 
-            f"🎯 Получатель: "
-            f"@{escape(username)}\n"
+            f"🎯 Получатель: @{escape(username)}\n"
 
             f"📝 Текст: "
             f"{escape(gift_text) if gift_text else 'без текста'}\n\n"
@@ -3403,7 +2588,7 @@ async def gift_username(
 
         tr(
             user.id,
-            "gift_success"
+            "gift_success",
         )
 
     )
@@ -3417,16 +2602,11 @@ async def gift_username(
 # ОТМЕНА
 # =========================================================
 
-async def cancel(
-    update,
-    context
-):
+async def cancel(update, context):
 
     context.user_data.clear()
 
-    user_id = (
-        update.effective_user.id
-    )
+    user_id = update.effective_user.id
 
     if update.callback_query:
 
@@ -3434,9 +2614,7 @@ async def cancel(
 
         await query.answer()
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             tr(
                 user_id,
@@ -3463,9 +2641,7 @@ async def cancel(
 # АДМИН
 # =========================================================
 
-def is_admin(
-    user_id
-):
+def is_admin(user_id):
 
     return user_id == ADMIN_ID
 
@@ -3541,14 +2717,9 @@ def admin_keyboard():
     ])
 
 
-async def admin(
-    update,
-    context
-):
+async def admin(update, context):
 
-    if not is_admin(
-        update.effective_user.id
-    ):
+    if not is_admin(update.effective_user.id):
 
         await update.message.reply_text(
             "❌ Нет доступа."
@@ -3567,31 +2738,21 @@ async def admin(
     )
 
 
-async def admin_callback(
-    update,
-    context
-):
+async def admin_callback(update, context):
 
     query = update.callback_query
 
     await query.answer()
 
-    if not is_admin(
-        query.from_user.id
-    ):
-        return ConversationHandler.END
+    if not is_admin(query.from_user.id):
+        return
 
     data = query.data
 
-    # -------------------------
-    # ДОБАВИТЬ
-    # -------------------------
 
     if data == "admin_add":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             "➕ Введите ID пользователя:"
 
@@ -3599,15 +2760,10 @@ async def admin_callback(
 
         return ADMIN_ADD_ID
 
-    # -------------------------
-    # УБАВИТЬ
-    # -------------------------
 
     if data == "admin_sub":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             "➖ Введите ID пользователя:"
 
@@ -3615,15 +2771,10 @@ async def admin_callback(
 
         return ADMIN_SUB_ID
 
-    # -------------------------
-    # БАН
-    # -------------------------
 
     if data == "admin_ban":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             "🔨 Введите ID пользователя для бана:"
 
@@ -3631,15 +2782,10 @@ async def admin_callback(
 
         return ADMIN_BAN_ID
 
-    # -------------------------
-    # РАЗБАН
-    # -------------------------
 
     if data == "admin_unban":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             "🔓 Введите ID пользователя для разбана:"
 
@@ -3647,15 +2793,10 @@ async def admin_callback(
 
         return ADMIN_UNBAN_ID
 
-    # -------------------------
-    # СООБЩЕНИЕ
-    # -------------------------
 
     if data == "admin_message":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             "💬 Введите ID пользователя:"
 
@@ -3663,9 +2804,6 @@ async def admin_callback(
 
         return ADMIN_MESSAGE_ID
 
-    # -------------------------
-    # ПОЛЬЗОВАТЕЛИ
-    # -------------------------
 
     if data == "admin_users":
 
@@ -3673,30 +2811,17 @@ async def admin_callback(
 
         if not users:
 
-            await safe_edit_text(
-                query.message,
+            await query.message.edit_text(
                 "👥 Пользователей пока нет."
             )
 
             return ConversationHandler.END
 
-        text = (
-            "👥 <b>ПОЛЬЗОВАТЕЛИ</b>\n\n"
-        )
+        text = "👥 <b>ПОЛЬЗОВАТЕЛИ</b>\n\n"
 
-        for index, row in enumerate(
-            users[:50],
-            1
-        ):
+        for index, row in enumerate(users[:50], 1):
 
-            (
-                user_id,
-                username,
-                name,
-                balance,
-                lang,
-                banned
-            ) = row
+            user_id, username, name, balance, lang, banned = row
 
             username_text = (
 
@@ -3739,9 +2864,7 @@ async def admin_callback(
 
             )
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             text,
 
@@ -3767,31 +2890,23 @@ async def admin_callback(
 
         return ConversationHandler.END
 
-    # -------------------------
-    # БАЛАНСЫ
-    # -------------------------
 
     if data == "admin_balances":
 
         users = get_users()
 
-        total = sum(
-            row[3]
-            for row in users
-        )
+        total = sum(row[3] for row in users)
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             (
+
                 "💰 <b>БАЛАНСЫ</b>\n\n"
 
-                f"👥 Пользователей: "
-                f"{len(users)}\n"
+                f"👥 Пользователей: {len(users)}\n"
 
-                f"💵 Общий баланс: "
-                f"{total:,} сум"
+                f"💵 Общий баланс: {total:,} сум"
+
             ),
 
             reply_markup=InlineKeyboardMarkup([
@@ -3816,41 +2931,31 @@ async def admin_callback(
 
         return ConversationHandler.END
 
-    # -------------------------
-    # СТАТИСТИКА
-    # -------------------------
 
     if data == "admin_stats":
 
         users = get_users()
 
         active = sum(
-            1
-            for row in users
-            if not row[5]
+            1 for row in users if not row[5]
         )
 
         banned = sum(
-            1
-            for row in users
-            if row[5]
+            1 for row in users if row[5]
         )
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             (
+
                 "📊 <b>СТАТИСТИКА</b>\n\n"
 
-                f"👥 Всего: "
-                f"{len(users)}\n"
+                f"👥 Всего: {len(users)}\n"
 
-                f"🟢 Активных: "
-                f"{active}\n"
+                f"🟢 Активных: {active}\n"
 
-                f"🔴 Заблокированных: "
-                f"{banned}"
+                f"🔴 Заблокированных: {banned}"
+
             ),
 
             reply_markup=InlineKeyboardMarkup([
@@ -3875,15 +2980,10 @@ async def admin_callback(
 
         return ConversationHandler.END
 
-    # -------------------------
-    # НАЗАД
-    # -------------------------
 
     if data == "admin_back":
 
-        await safe_edit_text(
-
-            query.message,
+        await query.message.edit_text(
 
             "🛠 <b>АДМИН-ПАНЕЛЬ</b>",
 
@@ -3895,17 +2995,12 @@ async def admin_callback(
 
         return ConversationHandler.END
 
-    return ConversationHandler.END
-
 
 # =========================================================
 # АДМИН: ДОБАВИТЬ БАЛАНС
 # =========================================================
 
-async def admin_add_id(
-    update,
-    context
-):
+async def admin_add_id(update, context):
 
     text = update.message.text.strip()
 
@@ -3919,22 +3014,14 @@ async def admin_add_id(
 
     user_id = int(text)
 
-    user = get_user(
-        user_id
-    )
+    user = get_user(user_id)
 
-    context.user_data[
-        "admin_user_id"
-    ] = user_id
+    context.user_data["admin_user_id"] = user_id
 
     await update.message.reply_text(
 
-        f"➕ Пользователь: "
-        f"<code>{user_id}</code>\n"
-
-        f"💰 Текущий баланс: "
-        f"{user['balance']:,} сум\n\n"
-
+        f"➕ Пользователь: <code>{user_id}</code>\n"
+        f"💰 Текущий баланс: {user['balance']:,} сум\n\n"
         "Введите сумму для добавления:",
 
         parse_mode="HTML",
@@ -3944,15 +3031,9 @@ async def admin_add_id(
     return ADMIN_ADD_AMOUNT
 
 
-async def admin_add_amount(
-    update,
-    context
-):
+async def admin_add_amount(update, context):
 
-    text = (
-        update.message.text
-        .replace(" ", "")
-    )
+    text = update.message.text.replace(" ", "")
 
     if not text.isdigit():
 
@@ -3972,42 +3053,39 @@ async def admin_add_amount(
 
         return ADMIN_ADD_AMOUNT
 
-    user_id = context.user_data.get(
-        "admin_user_id"
-    )
+    user_id = context.user_data["admin_user_id"]
 
-    if not user_id:
+    change_balance(user_id, amount)
 
-        await update.message.reply_text(
-            "❌ Сессия админки устарела. Откройте /admin заново."
-        )
+    notified = await safe_send_user_message(
 
-        context.user_data.clear()
-
-        return ConversationHandler.END
-
-    change_balance(
-        user_id,
-        amount
-    )
-
-    await context.bot.send_message(
+        context.bot,
 
         user_id,
 
         (
+
             "💰 <b>Баланс изменён администратором</b>\n\n"
+
             f"➕ Добавлено: {amount:,} сум"
+
         ),
 
         parse_mode="HTML",
 
     )
 
+    admin_result = (
+        f"✅ Добавлено <b>{amount:,} сум</b>\n"
+        f"👤 ID: <code>{user_id}</code>"
+    )
+
+    if not notified:
+        admin_result += "\n\n⚠️ Баланс изменён, но уведомление пользователю не отправлено: Telegram не нашёл этот чат."
+
     await update.message.reply_text(
 
-        f"✅ Добавлено <b>{amount:,} сум</b>\n"
-        f"👤 ID: <code>{user_id}</code>",
+        admin_result,
 
         parse_mode="HTML",
 
@@ -4022,10 +3100,7 @@ async def admin_add_amount(
 # АДМИН: УБАВИТЬ БАЛАНС
 # =========================================================
 
-async def admin_sub_id(
-    update,
-    context
-):
+async def admin_sub_id(update, context):
 
     text = update.message.text.strip()
 
@@ -4039,22 +3114,14 @@ async def admin_sub_id(
 
     user_id = int(text)
 
-    user = get_user(
-        user_id
-    )
+    user = get_user(user_id)
 
-    context.user_data[
-        "admin_user_id"
-    ] = user_id
+    context.user_data["admin_user_id"] = user_id
 
     await update.message.reply_text(
 
-        f"➖ Пользователь: "
-        f"<code>{user_id}</code>\n"
-
-        f"💰 Текущий баланс: "
-        f"{user['balance']:,} сум\n\n"
-
+        f"➖ Пользователь: <code>{user_id}</code>\n"
+        f"💰 Текущий баланс: {user['balance']:,} сум\n\n"
         "Введите сумму для снятия:",
 
         parse_mode="HTML",
@@ -4064,15 +3131,9 @@ async def admin_sub_id(
     return ADMIN_SUB_AMOUNT
 
 
-async def admin_sub_amount(
-    update,
-    context
-):
+async def admin_sub_amount(update, context):
 
-    text = (
-        update.message.text
-        .replace(" ", "")
-    )
+    text = update.message.text.replace(" ", "")
 
     if not text.isdigit():
 
@@ -4092,23 +3153,9 @@ async def admin_sub_amount(
 
         return ADMIN_SUB_AMOUNT
 
-    user_id = context.user_data.get(
-        "admin_user_id"
-    )
+    user_id = context.user_data["admin_user_id"]
 
-    if not user_id:
-
-        await update.message.reply_text(
-            "❌ Сессия админки устарела. Откройте /admin заново."
-        )
-
-        context.user_data.clear()
-
-        return ConversationHandler.END
-
-    user = get_user(
-        user_id
-    )
+    user = get_user(user_id)
 
     if user["balance"] < amount:
 
@@ -4119,32 +3166,39 @@ async def admin_sub_amount(
 
         )
 
-        context.user_data.clear()
-
         return ConversationHandler.END
 
-    change_balance(
-        user_id,
-        -amount
-    )
+    change_balance(user_id, -amount)
 
-    await context.bot.send_message(
+    notified = await safe_send_user_message(
+
+        context.bot,
 
         user_id,
 
         (
+
             "💰 <b>Баланс изменён администратором</b>\n\n"
+
             f"➖ Снято: {amount:,} сум"
+
         ),
 
         parse_mode="HTML",
 
     )
 
+    admin_result = (
+        f"✅ Убавлено <b>{amount:,} сум</b>\n"
+        f"👤 ID: <code>{user_id}</code>"
+    )
+
+    if not notified:
+        admin_result += "\n\n⚠️ Баланс изменён, но уведомление пользователю не отправлено."
+
     await update.message.reply_text(
 
-        f"✅ Убавлено <b>{amount:,} сум</b>\n"
-        f"👤 ID: <code>{user_id}</code>",
+        admin_result,
 
         parse_mode="HTML",
 
@@ -4159,10 +3213,7 @@ async def admin_sub_amount(
 # АДМИН: БАН
 # =========================================================
 
-async def admin_ban_id(
-    update,
-    context
-):
+async def admin_ban_id(update, context):
 
     text = update.message.text.strip()
 
@@ -4176,16 +3227,13 @@ async def admin_ban_id(
 
     user_id = int(text)
 
-    get_user(
-        user_id
-    )
+    get_user(user_id)
 
-    set_ban(
-        user_id,
-        1
-    )
+    set_ban(user_id, 1)
 
-    await context.bot.send_message(
+    await safe_send_user_message(
+
+        context.bot,
 
         user_id,
 
@@ -4195,14 +3243,11 @@ async def admin_ban_id(
 
     await update.message.reply_text(
 
-        f"✅ Пользователь "
-        f"<code>{user_id}</code> заблокирован.",
+        f"✅ Пользователь <code>{user_id}</code> заблокирован.",
 
         parse_mode="HTML",
 
     )
-
-    context.user_data.clear()
 
     return ConversationHandler.END
 
@@ -4211,10 +3256,7 @@ async def admin_ban_id(
 # АДМИН: РАЗБАН
 # =========================================================
 
-async def admin_unban_id(
-    update,
-    context
-):
+async def admin_unban_id(update, context):
 
     text = update.message.text.strip()
 
@@ -4228,16 +3270,13 @@ async def admin_unban_id(
 
     user_id = int(text)
 
-    get_user(
-        user_id
-    )
+    get_user(user_id)
 
-    set_ban(
-        user_id,
-        0
-    )
+    set_ban(user_id, 0)
 
-    await context.bot.send_message(
+    await safe_send_user_message(
+
+        context.bot,
 
         user_id,
 
@@ -4247,14 +3286,11 @@ async def admin_unban_id(
 
     await update.message.reply_text(
 
-        f"✅ Пользователь "
-        f"<code>{user_id}</code> разблокирован.",
+        f"✅ Пользователь <code>{user_id}</code> разблокирован.",
 
         parse_mode="HTML",
 
     )
-
-    context.user_data.clear()
 
     return ConversationHandler.END
 
@@ -4263,10 +3299,7 @@ async def admin_unban_id(
 # АДМИН: СООБЩЕНИЕ
 # =========================================================
 
-async def admin_message_id(
-    update,
-    context
-):
+async def admin_message_id(update, context):
 
     text = update.message.text.strip()
 
@@ -4280,19 +3313,13 @@ async def admin_message_id(
 
     user_id = int(text)
 
-    get_user(
-        user_id
-    )
+    get_user(user_id)
 
-    context.user_data[
-        "admin_user_id"
-    ] = user_id
+    context.user_data["admin_user_id"] = user_id
 
     await update.message.reply_text(
 
-        f"💬 ID пользователя: "
-        f"<code>{user_id}</code>\n\n"
-
+        f"💬 ID пользователя: <code>{user_id}</code>\n\n"
         "Теперь напишите сообщение:",
 
         parse_mode="HTML",
@@ -4302,83 +3329,54 @@ async def admin_message_id(
     return ADMIN_MESSAGE_TEXT
 
 
-async def admin_message_text(
-    update,
-    context
-):
+async def admin_message_text(update, context):
 
-    user_id = context.user_data.get(
-        "admin_user_id"
-    )
-
-    if not user_id:
-
-        await update.message.reply_text(
-            "❌ Сессия админки устарела. Откройте /admin заново."
-        )
-
-        context.user_data.clear()
-
-        return ConversationHandler.END
+    user_id = context.user_data["admin_user_id"]
 
     text = update.message.text
 
     try:
 
-        await context.bot.send_message(
+        notified = await safe_send_user_message(
+
+            context.bot,
 
             user_id,
 
             (
+
                 "📩 <b>Сообщение от администратора</b>\n\n"
+
                 f"{escape(text)}"
+
             ),
 
             parse_mode="HTML",
 
         )
 
-        await update.message.reply_text(
-            "✅ Сообщение отправлено."
-        )
+        if notified:
+            await update.message.reply_text(
+                "✅ Сообщение отправлено."
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Пользователь недоступен в Telegram. Возможно, он не запускал бота или заблокировал его."
+            )
 
     except Exception as e:
 
-        logger.exception(
-            "ADMIN MESSAGE ERROR: %s",
-            e
-        )
+        logger.exception(e)
 
         await update.message.reply_text(
 
-            "❌ Не удалось отправить сообщение.\n"
-            "Возможно, пользователь заблокировал бота."
+            "❌ Не удалось отправить сообщение."
 
         )
 
     context.user_data.clear()
 
     return ConversationHandler.END
-
-
-# =========================================================
-# UNKNOWN CALLBACK
-# =========================================================
-
-async def unknown_callback(
-    update,
-    context
-):
-
-    query = update.callback_query
-
-    try:
-
-        await query.answer()
-
-    except Exception:
-
-        pass
 
 
 # =========================================================
@@ -4389,64 +3387,72 @@ def main():
 
     init_db()
 
-    # Render web server
     threading.Thread(
         target=run_web,
         daemon=True,
     ).start()
 
     application = (
+
         Application.builder()
+
         .token(BOT_TOKEN)
+
         .build()
+
     )
+
 
     # =====================================================
     # CONVERSATION HANDLER
+    # ВАЖНО: СТАВИМ ПЕРВЫМ
     # =====================================================
 
     conversation_handler = ConversationHandler(
 
-        # -------------------------------------------------
-        # ENTRY POINTS
-        # -------------------------------------------------
-
         entry_points=[
 
             CallbackQueryHandler(
+
                 refill_start,
+
                 pattern=r"^main_refill$",
+
             ),
 
             CallbackQueryHandler(
                 buy_start,
-                pattern=r"^buy_(stars|premium)",
+                pattern=r"^buy_.*$",
             ),
 
             CallbackQueryHandler(
+
                 gift_start,
+
                 pattern=r"^gift_\d+$",
+
             ),
 
             CallbackQueryHandler(
+
                 admin_callback,
+
                 pattern=r"^admin_(add|sub|ban|unban|message)$",
+
             ),
 
         ],
-
-        # -------------------------------------------------
-        # STATES
-        # -------------------------------------------------
 
         states={
 
             REFILL_AMOUNT: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     refill_amount,
+
                 )
 
             ],
@@ -4454,13 +3460,19 @@ def main():
             REFILL_CHECK: [
 
                 MessageHandler(
+
                     filters.PHOTO,
+
                     refill_check,
+
                 ),
 
                 MessageHandler(
+
                     filters.ALL,
+
                     refill_check,
+
                 ),
 
             ],
@@ -4468,9 +3480,11 @@ def main():
             BUY_AMOUNT: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     buy_amount,
+
                 )
 
             ],
@@ -4478,9 +3492,11 @@ def main():
             BUY_USERNAME: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     buy_username,
+
                 )
 
             ],
@@ -4488,8 +3504,11 @@ def main():
             BUY_CONFIRM: [
 
                 CallbackQueryHandler(
+
                     buy_confirm,
+
                     pattern=r"^(confirm_buy|cancel_buy)$",
+
                 )
 
             ],
@@ -4497,12 +3516,19 @@ def main():
             GIFT_SEND_TYPE: [
 
                 CallbackQueryHandler(
+
                     gift_send_type,
+
                     pattern=(
+
                         r"^(gift_anonymous_yes|"
+
                         r"gift_anonymous_no|"
+
                         r"cancel_gift)$"
+
                     ),
+
                 )
 
             ],
@@ -4510,18 +3536,27 @@ def main():
             GIFT_TEXT: [
 
                 CallbackQueryHandler(
+
                     gift_text_choice,
+
                     pattern=(
+
                         r"^(gift_text_yes|"
+
                         r"gift_text_no|"
+
                         r"cancel_gift)$"
+
                     ),
+
                 ),
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     gift_text_input,
+
                 ),
 
             ],
@@ -4529,9 +3564,11 @@ def main():
             GIFT_USERNAME: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     gift_username,
+
                 )
 
             ],
@@ -4539,9 +3576,11 @@ def main():
             ADMIN_ADD_ID: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_add_id,
+
                 )
 
             ],
@@ -4549,9 +3588,11 @@ def main():
             ADMIN_ADD_AMOUNT: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_add_amount,
+
                 )
 
             ],
@@ -4559,9 +3600,11 @@ def main():
             ADMIN_SUB_ID: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_sub_id,
+
                 )
 
             ],
@@ -4569,9 +3612,11 @@ def main():
             ADMIN_SUB_AMOUNT: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_sub_amount,
+
                 )
 
             ],
@@ -4579,9 +3624,11 @@ def main():
             ADMIN_BAN_ID: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_ban_id,
+
                 )
 
             ],
@@ -4589,9 +3636,11 @@ def main():
             ADMIN_UNBAN_ID: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_unban_id,
+
                 )
 
             ],
@@ -4599,9 +3648,11 @@ def main():
             ADMIN_MESSAGE_ID: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_message_id,
+
                 )
 
             ],
@@ -4609,18 +3660,16 @@ def main():
             ADMIN_MESSAGE_TEXT: [
 
                 MessageHandler(
-                    filters.TEXT
-                    & ~filters.COMMAND,
+
+                    filters.TEXT & ~filters.COMMAND,
+
                     admin_message_text,
+
                 )
 
             ],
 
         },
-
-        # -------------------------------------------------
-        # FALLBACKS
-        # -------------------------------------------------
 
         fallbacks=[
 
@@ -4630,20 +3679,21 @@ def main():
             ),
 
             CallbackQueryHandler(
+
                 cancel,
+
                 pattern=r"^cancel_",
+
             ),
 
         ],
 
-        allow_reentry=False,
+        allow_reentry=True,
 
     )
 
-    # ConversationHandler добавляем первым.
-    application.add_handler(
-        conversation_handler
-    )
+    application.add_handler(conversation_handler)
+
 
     # =====================================================
     # START
@@ -4658,8 +3708,9 @@ def main():
 
     )
 
+
     # =====================================================
-    # ADMIN COMMAND
+    # ADMIN
     # =====================================================
 
     application.add_handler(
@@ -4670,6 +3721,7 @@ def main():
         )
 
     )
+
 
     # =====================================================
     # ЯЗЫК
@@ -4687,6 +3739,7 @@ def main():
 
     )
 
+
     # =====================================================
     # ПРОФИЛЬ
     # =====================================================
@@ -4703,8 +3756,9 @@ def main():
 
     )
 
+
     # =====================================================
-    # ПОПОЛНЕНИЕ ПО ЧЕКУ
+    # ПОПОЛНЕНИЕ
     # =====================================================
 
     application.add_handler(
@@ -4719,28 +3773,35 @@ def main():
 
     )
 
+
     # =====================================================
-    # ГЛАВНЫЕ КНОПКИ
+    # АДМИН
     # =====================================================
 
     application.add_handler(
 
         CallbackQueryHandler(
 
-            main_buttons,
+            admin_callback,
 
-            pattern=(
-                r"^(main_shop|"
-                r"shop_stars|"
-                r"shop_premium|"
-                r"shop_gifts|"
-                r"back_main|"
-                r"language_menu)$"
-            ),
+            pattern=r"^admin_",
 
         )
 
     )
+
+
+    # =====================================================
+    # ГЛАВНЫЕ КНОПКИ
+    # =====================================================
+
+    application.add_handler(
+        CallbackQueryHandler(
+            main_buttons,
+            pattern=r"^(main_shop|shop_.*|buy_.*|gift_.*|back_main|language_menu)$",
+        )
+    )
+
 
     # =====================================================
     # UNKNOWN CALLBACK
@@ -4749,24 +3810,38 @@ def main():
     application.add_handler(
 
         CallbackQueryHandler(
-            unknown_callback
+
+            unknown_callback,
+
         )
 
     )
 
+
     logger.info(
-        "BOT STARTED"
+        "BOT STARTED | ADMIN_ID=%s | PARTNER_API_CONFIGURED=%s | CARDXABAR_CONFIGURED=%s",
+        ADMIN_ID,
+        bool(PARTNER_API_KEY and PARTNER_API_URL),
+        bool(CARDXABAR_API_KEY),
     )
 
     application.run_polling(
+
         drop_pending_updates=True
+
     )
 
 
-# =========================================================
-# ЗАПУСК
-# =========================================================
+async def unknown_callback(update, context):
+    query = update.callback_query
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
 
 if __name__ == "__main__":
 
     main()
+
