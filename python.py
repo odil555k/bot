@@ -42,7 +42,7 @@ ADMIN_ID = int(os.environ["ADMIN_ID"])
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
 PARTNER_API_URL = os.environ.get(
     "PARTNER_API_URL",
-    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api/v2",
+    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api.php",
 ).rstrip("/")
 PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
 
@@ -443,7 +443,6 @@ def init_db():
     """)
 
     # CardXabar: ожидаемые пополнения.
-    # payment_amount — уникальная сумма, которую пользователь должен перевести.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_payments (
             payment_id TEXT PRIMARY KEY,
@@ -635,7 +634,6 @@ def create_cardxabar_payment(user_id, requested_amount):
 
     try:
         for _ in range(200):
-            # Двузначный суффикс: например 10000 -> 10047.
             suffix = uuid.uuid4().int % 90 + 10
             payment_amount = requested_amount + suffix
 
@@ -658,7 +656,6 @@ def create_cardxabar_payment(user_id, requested_amount):
                 conn.commit()
                 return payment_id, payment_amount
             except sqlite3.IntegrityError:
-                # Такая уникальная сумма уже занята другим ожидающим платежом.
                 conn.rollback()
                 continue
 
@@ -686,7 +683,6 @@ def get_cardxabar_payment(payment_amount):
 
 
 def mark_cardxabar_test_transaction(fingerprint, payment_amount, raw_text):
-    """Записывает найденную транзакцию. Баланс НЕ меняет."""
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
     try:
@@ -780,7 +776,6 @@ def send_json(handler, status, payload):
 
 
 def notify_user_balance(user_id, credited_amount):
-    """Отправляет пользователю уведомление после успешного пополнения."""
     try:
         user = get_user(user_id)
         lang = user.get("lang", "ru")
@@ -983,7 +978,6 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
-        # Уведомление отправляется только после успешного commit.
         if not CARDXABAR_DRY_RUN and 'user_id' in locals() and 'credited_amount' in locals():
             notify_user_balance(user_id, credited_amount)
 
@@ -1440,24 +1434,17 @@ async def language_callback(update, context):
 
 async def partner_api_request(action, method="GET", payload=None):
     """
-    Универсальный запрос к Partner API.
-
-    Авторизация отправляется двумя способами одновременно:
-    1) X-API-Key header
-    2) api_key query parameter
-
-    Это нужно для совместимости с текущей версией Partner API,
-    где сервер может проверять ключ через query string.
+    Универсальный запрос к Partner API с передачей ключа в заголовках.
     """
     api_key = (PARTNER_API_KEY or "").strip().strip('"').strip("'")
 
     base_params = {
         "action": action,
-        "api_key": api_key,
     }
 
     headers = {
         "X-API-Key": api_key,
+        "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
 
@@ -1538,29 +1525,14 @@ async def partner_api_request(action, method="GET", payload=None):
 
 
 async def partner_api_info():
-    """Получает баланс и информацию профиля Partner API."""
     return await partner_api_request("api_info", "GET")
 
 
 async def partner_api_services():
-    """Получает список услуг и текущие цены Partner API."""
     return await partner_api_request("api_services", "GET")
 
 
 async def send_order_to_partner(product_type, value, target):
-    """
-    Создаёт заказ Stars или Premium через новый Partner API.
-
-    Stars:
-        service=stars
-        target=username
-        quantity=stars
-
-    Premium:
-        service=premium
-        target=username
-        months=3/6/12
-    """
     target = target.replace("@", "").strip()
 
     if product_type == "stars":
@@ -1621,7 +1593,7 @@ async def send_order_to_partner(product_type, value, target):
 
 
 # =========================================================
-# ПОКУПКА STARS / PREMIUM
+# ПОКУПКА STARS & PREMIUM
 # =========================================================
 async def buy_start(update, context):
 
@@ -1632,7 +1604,6 @@ async def buy_start(update, context):
 
     data = query.data
 
-    # Покупка Stars: ввод своего количества
     if data == "buy_stars":
 
         context.user_data["product_type"] = "stars"
@@ -1646,7 +1617,6 @@ async def buy_start(update, context):
 
         return BUY_AMOUNT
 
-    # Покупка Stars: готовые варианты
     if data.startswith("buy_stars_"):
 
         amount = int(data.split("_")[2])
@@ -1659,9 +1629,6 @@ async def buy_start(update, context):
         )
 
         return BUY_USERNAME
-
-    # Покупка Premium
-
 
     if data.startswith("buy_premium_"):
 
@@ -1994,7 +1961,6 @@ async def refill_amount(update, context):
 
     amount = int(text)
 
-    # Для уникальной суммы нужно оставить место под суффикс 10–99.
     if amount < 1000:
         await update.message.reply_text(
             "❌ Минимальная сумма пополнения — 1 000 сум."
@@ -2034,14 +2000,6 @@ async def refill_amount(update, context):
             card=CARD_NUMBER,
         ),
         parse_mode="HTML",
-    )
-
-    logger.info(
-        "CARDXABAR PAYMENT CREATED | payment_id=%s | user_id=%s | requested=%s | payment_amount=%s",
-        payment_id,
-        user.id,
-        amount,
-        payment_amount,
     )
 
     context.user_data.clear()
@@ -3351,11 +3309,6 @@ def main():
     )
 
 
-    # =====================================================
-    # CONVERSATION HANDLER
-    # ВАЖНО: СТАВИМ ПЕРВЫМ
-    # =====================================================
-
     conversation_handler = ConversationHandler(
 
         entry_points=[
@@ -3642,11 +3595,6 @@ def main():
 
     application.add_handler(conversation_handler)
 
-
-    # =====================================================
-    # START
-    # =====================================================
-
     application.add_handler(
 
         CommandHandler(
@@ -3656,11 +3604,6 @@ def main():
 
     )
 
-
-    # =====================================================
-    # ADMIN
-    # =====================================================
-
     application.add_handler(
 
         CommandHandler(
@@ -3669,11 +3612,6 @@ def main():
         )
 
     )
-
-
-    # =====================================================
-    # ЯЗЫК
-    # =====================================================
 
     application.add_handler(
 
@@ -3687,11 +3625,6 @@ def main():
 
     )
 
-
-    # =====================================================
-    # ПРОФИЛЬ
-    # =====================================================
-
     application.add_handler(
 
         CallbackQueryHandler(
@@ -3703,11 +3636,6 @@ def main():
         )
 
     )
-
-
-    # =====================================================
-    # ПОПОЛНЕНИЕ
-    # =====================================================
 
     application.add_handler(
 
@@ -3721,11 +3649,6 @@ def main():
 
     )
 
-
-    # =====================================================
-    # АДМИН
-    # =====================================================
-
     application.add_handler(
 
         CallbackQueryHandler(
@@ -3738,22 +3661,12 @@ def main():
 
     )
 
-
-    # =====================================================
-    # ГЛАВНЫЕ КНОПКИ
-    # =====================================================
-
     application.add_handler(
         CallbackQueryHandler(
             main_buttons,
             pattern=r"^(main_shop|shop_.*|buy_.*|gift_.*|back_main|language_menu)$",
         )
     )
-
-
-    # =====================================================
-    # UNKNOWN CALLBACK
-    # =====================================================
 
     application.add_handler(
 
@@ -3764,7 +3677,6 @@ def main():
         )
 
     )
-
 
     logger.info("BOT STARTED")
 
@@ -3787,4 +3699,3 @@ async def unknown_callback(update, context):
 if __name__ == "__main__":
 
     main()
-
