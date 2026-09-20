@@ -38,7 +38,6 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 
 # Partner API для автоматической покупки Telegram Stars / Premium.
-# Ключ API хранится только в переменных окружения.
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
 PARTNER_API_URL = os.environ.get(
     "PARTNER_API_URL",
@@ -442,7 +441,6 @@ def init_db():
         )
     """)
 
-    # CardXabar: ожидаемые пополнения.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_payments (
             payment_id TEXT PRIMARY KEY,
@@ -454,7 +452,6 @@ def init_db():
         )
     """)
 
-    # CardXabar: защита от повторной обработки одного и того же сообщения.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_transactions (
             fingerprint TEXT PRIMARY KEY,
@@ -625,7 +622,6 @@ def get_users():
 
 
 def create_cardxabar_payment(user_id, requested_amount):
-    """Создаёт уникальную сумму для перевода через CardXabar."""
     if requested_amount < 1000 or requested_amount > 9_999_900:
         raise ValueError("Сумма должна быть от 1000 до 9 999 900 сум.")
 
@@ -660,50 +656,6 @@ def create_cardxabar_payment(user_id, requested_amount):
                 continue
 
         raise RuntimeError("Не удалось создать уникальную сумму платежа.")
-    finally:
-        conn.close()
-
-
-def get_cardxabar_payment(payment_amount):
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT payment_id, user_id, requested_amount, payment_amount, status, created_at
-        FROM cardxabar_payments
-        WHERE payment_amount = ? AND status = 'pending'
-        ORDER BY created_at ASC
-        LIMIT 1
-        """,
-        (payment_amount,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row
-
-
-def mark_cardxabar_test_transaction(fingerprint, payment_amount, raw_text):
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            INSERT INTO cardxabar_transactions
-            (fingerprint, payment_amount, raw_text, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                fingerprint,
-                payment_amount,
-                raw_text,
-                datetime.now().isoformat(timespec="seconds"),
-            ),
-        )
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        return False
     finally:
         conn.close()
 
@@ -1434,12 +1386,13 @@ async def language_callback(update, context):
 
 async def partner_api_request(action, method="GET", payload=None):
     """
-    Универсальный запрос к Partner API с передачей ключа в заголовках.
+    Универсальный запрос к Partner API с дублированием ключа в query-параметрах и заголовках.
     """
     api_key = (PARTNER_API_KEY or "").strip().strip('"').strip("'")
 
     base_params = {
         "action": action,
+        "api_key": api_key,
     }
 
     headers = {
