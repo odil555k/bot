@@ -39,7 +39,6 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 
 # Partner API для автоматической покупки Telegram Stars / Premium.
-# Ключ API хранится только в переменных окружения.
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
 PARTNER_API_URL = os.environ.get(
     "PARTNER_API_URL",
@@ -75,7 +74,6 @@ PREMIUM_PRICES = {
 }
 
 # Наценка на номера: 30% прибыли от конечной цены.
-# То есть если API/Batu берет 2000 сум, пользователь платит 2000 / 0.70.
 NUMBER_PROFIT_PERCENT = 30
 
 def number_sale_price(cost_uzs):
@@ -113,130 +111,28 @@ logger = logging.getLogger(__name__)
 REFILL_AMOUNT = 1
 REFILL_CHECK = 2
 
-
 BUY_AMOUNT = 3
 BUY_USERNAME = 4
 BUY_CONFIRM = 5
 
-GIFT_SEND_TYPE = 6
-GIFT_TEXT = 7
-GIFT_USERNAME = 8
+ADMIN_ADD_ID = 6
+ADMIN_ADD_AMOUNT = 7
 
-ADMIN_ADD_ID = 9
-ADMIN_ADD_AMOUNT = 10
+ADMIN_SUB_ID = 8
+ADMIN_SUB_AMOUNT = 9
 
-ADMIN_SUB_ID = 11
-ADMIN_SUB_AMOUNT = 12
+ADMIN_BAN_ID = 10
+ADMIN_UNBAN_ID = 11
 
-ADMIN_BAN_ID = 13
-ADMIN_UNBAN_ID = 14
-
-ADMIN_MESSAGE_ID = 15
-ADMIN_MESSAGE_TEXT = 16
+ADMIN_MESSAGE_ID = 12
+ADMIN_MESSAGE_TEXT = 13
 
 # Новые состояния для рассылки и промокодов
-ADMIN_BROADCAST_TEXT = 17
-ADMIN_PROMO_CODE = 18
-ADMIN_PROMO_AMOUNT = 19
-ADMIN_PROMO_USERS = 20
-ACTIVATE_PROMO_STATE = 21
-
-
-# =========================================================
-# ПОДАРКИ
-# =========================================================
-
-GIFTS = {
-
-    1: {
-        "emoji": "🧸",
-        "emoji_id": "5397971251878732060",
-        "price": 4000,
-        "stars": 15,
-        "name": "Мишка",
-    },
-
-    2: {
-        "emoji": "💝",
-        "emoji_id": "5280615440928758599",
-        "price": 4000,
-        "stars": 15,
-        "name": "сердце",
-    },
-
-    3: {
-        "emoji": "🌹",
-        "emoji_id": "5280774333243873175",
-        "price": 6000,
-        "stars": 25,
-        "name": "Роза",
-    },
-
-    4: {
-        "emoji": "🎁",
-        "emoji_id": "5283080528818360566",
-        "price": 6000,
-        "stars": 25,
-        "name": "Подарок",
-    },
-
-    5: {
-        "emoji": "🚀",
-        "emoji_id": "5280769763398671636",
-        "price": 10500,
-        "stars": 50,
-        "name": "Ракета",
-    },
-
-    6: {
-        "emoji": "🎂",
-        "emoji_id": "5280659198055572187",
-        "price": 10500,
-        "stars": 50,
-        "name": "Торт",
-    },
-
-    7: {
-        "emoji": "💐",
-        "emoji_id": "5280922999241859582",
-        "price": 10500,
-        "stars": 50,
-        "name": "Алмаз",
-    },
-
-    8: {
-        "emoji": "🍾",
-        "emoji_id": "5451905784734574339",
-        "price": 10500,
-        "stars": 50,
-        "name": "Шампанское",
-    },
-
-    9: {
-        "emoji": "🏆",
-        "emoji_id": "5280769763398671636",
-        "price": 21000,
-        "stars": 100,
-        "name": "Кубок",
-    },
-
-    10: {
-        "emoji": "💍",
-        "emoji_id": "5280651583078556009",
-        "price": 21000,
-        "stars": 100,
-        "name": "Кольцо",
-    },
-
-    11: {
-        "emoji": "💎",
-        "emoji_id": "5280922999241859582",
-        "price": 21000,
-        "stars": 100,
-        "name": "Алмаз",
-    },
-
-}
+ADMIN_BROADCAST_TEXT = 14
+ADMIN_PROMO_CODE = 15
+ADMIN_PROMO_AMOUNT = 16
+ADMIN_PROMO_USERS = 17
+ACTIVATE_PROMO_STATE = 18
 
 
 # =========================================================
@@ -271,11 +167,6 @@ TEXTS = {
         "premium": (
             "🌟 <b>Telegram Premium</b>\n\n"
             "Выберите срок подписки:"
-        ),
-
-        "gifts": (
-            "🎁 <b>Выберите подарок:</b>\n\n"
-            "Цена указана в сумах."
         ),
 
         "enter_stars": (
@@ -322,21 +213,6 @@ TEXTS = {
         "receipt_sent": "⏳ Заявка отправлена администратору.",
 
         "send_receipt": "❌ Отправьте подтверждение оплаты.",
-
-        "gift_send_type": (
-            "🎁 <b>Как отправить подарок?</b>"
-        ),
-
-        "gift_text": (
-            "✍️ Напишите текст для подарка."
-        ),
-
-        "gift_username": (
-            "✏️ Введите юзернейм получателя подарка.\n\n"
-            "Без символа @"
-        ),
-
-        "gift_success": "✅ <b>Подарок успешно куплен!</b>",
 
         "numbers": (
             "📱 <b>Telegram номера</b>\n\n"
@@ -404,11 +280,6 @@ TEXTS = {
             "Muddatni tanlang:"
         ),
 
-        "gifts": (
-            "🎁 <b>Sovg'ani tanlang:</b>\n\n"
-            "Narx so'mda ko'rsatilgan."
-        ),
-
         "enter_stars": (
             "✏️ Stars miqdorini kiriting.\n\n"
             "Minimum: 50\n"
@@ -450,21 +321,6 @@ TEXTS = {
         "receipt_sent": "⏳ So'rov administratorga yuborildi.",
 
         "send_receipt": "❌ To'lov tasdig'ini yuboring.",
-
-        "gift_send_type": (
-            "🎁 <b>Sovg'ani qanday yuborish?</b>"
-        ),
-
-        "gift_text": (
-            "✍️ Sovg'aga qo'shiladigan matnni yozing."
-        ),
-
-        "gift_username": (
-            "✏️ Qabul qiluvchining username'ini kiriting.\n\n"
-            "@ belgisiz"
-        ),
-
-        "gift_success": "✅ <b>Sovg'a muvaffaqiyatli sotib olindi!</b>",
 
         "numbers": (
             "📱 <b>Telegram raqamlari</b>\n\n"
@@ -528,7 +384,6 @@ def init_db():
         )
     """)
 
-    # CardXabar: ожидаемые пополнения.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_payments (
             payment_id TEXT PRIMARY KEY,
@@ -540,7 +395,6 @@ def init_db():
         )
     """)
 
-    # CardXabar: защита от повторной обработки.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cardxabar_transactions (
             fingerprint TEXT PRIMARY KEY,
@@ -565,7 +419,6 @@ def init_db():
         )
     """)
 
-    # Таблица промокодов
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS promos (
             code TEXT PRIMARY KEY,
@@ -575,7 +428,6 @@ def init_db():
         )
     """)
 
-    # Таблица для отслеживания активаций промокодов пользователями
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS promo_activations (
             user_id INTEGER,
@@ -1156,7 +1008,6 @@ def main_keyboard(user_id):
         ],
 
         [
-            # Добавлена кнопка промокода в главное меню
             InlineKeyboardButton(
                 "🎁 Промокод",
                 callback_data="main_promo",
@@ -1263,7 +1114,7 @@ async def profile_callback(update, context):
 
 
 # =========================================================
-# АКТИВАЦИЯ ПРОМОКОДА (ОБРАБОТКА ИЗ ГЛАВНОГО МЕНЮ)
+# АКТИВАЦИЯ ПРОМОКОДА
 # =========================================================
 
 async def promo_menu_callback(update, context):
@@ -1299,7 +1150,6 @@ async def activate_promo_input(update, context):
         context.user_data.clear()
         return ConversationHandler.END
 
-    # Проверяем, активировал ли пользователь уже этот промокод
     activated = cursor.execute(
         "SELECT 1 FROM promo_activations WHERE user_id = ? AND code = ?",
         (user.id, code)
@@ -1317,7 +1167,6 @@ async def activate_promo_input(update, context):
         context.user_data.clear()
         return ConversationHandler.END
 
-    # Начисляем средства и фиксируем активацию
     amount = promo["amount"]
     change_balance(user.id, amount)
 
@@ -1443,12 +1292,6 @@ async def main_buttons(update, context):
 
             [
                 InlineKeyboardButton(
-                    "🎁 Подарки",
-                    callback_data="shop_gifts",
-                )
-            ],
-            [
-                InlineKeyboardButton(
                     "📱 Номера",
                     callback_data="shop_numbers",
                 )
@@ -1503,7 +1346,7 @@ async def main_buttons(update, context):
             [
                 InlineKeyboardButton(
                     tr(user.id, "back"),
-                    callback_data="main_shop",
+                        callback_data="main_shop",
                 )
             ],
 
@@ -1622,27 +1465,6 @@ async def main_buttons(update, context):
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML",
         )
-        return
-
-    if query.data == "shop_gifts":
-        result=await get_api_gifts()
-        if result.get("ok") is not True:
-            await query.message.edit_text(tr(user.id,"api_error_detailed",message=result.get("message","Ошибка API")),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")]]),parse_mode="HTML")
-            return
-        gifts=result.get("result") or []
-        if not gifts:
-            await query.message.edit_text("🎁 Сейчас доступных подарков нет.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")]]))
-            return
-        keyboard=[]
-        for index,gift in enumerate(gifts[:30],1):
-            gift_id=str(gift.get("gift_id",""))
-            price=int(gift.get("price_uzs",0))
-            if not gift_id or price<=0:
-                continue
-            gift_name=str(gift.get("name") or f"Подарок #{index}").strip()
-            keyboard.append([InlineKeyboardButton(f"🎁 {gift_name} — {price:,} сум",callback_data=f"giftapi_{gift_id}")])
-        keyboard.append([InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")])
-        await query.message.edit_text("🎁 <b>Актуальные подарки</b>\n\nЦена загружается напрямую из API.",reply_markup=InlineKeyboardMarkup(keyboard),parse_mode="HTML")
         return
 
 
@@ -1794,19 +1616,6 @@ async def buy_number(country_code):
 
 async def get_number_code(phone):
     return await sim_api_request("/api/sms", params={"number": str(phone)})
-
-
-async def get_api_gifts():
-    return await partner_api_request("/gifts",method="GET")
-
-
-async def buy_api_gift(username,gift_id,comment,anonymous,idempotency_key):
-    payload={"username":username,"gift_id":str(gift_id),"anonymous":bool(anonymous)}
-    if comment:
-        payload["comment"]=str(comment)[:200]
-    return await partner_api_request(
-        "/gift/buy",method="POST",payload=payload,idempotency_key=idempotency_key,
-    )
 
 
 async def send_order_to_partner(product_type,value,target,telegram_user_id):
@@ -2426,289 +2235,6 @@ async def payment_callback(update, context):
 
 
 # =========================================================
-# ПОДАРКИ
-# =========================================================
-
-async def gift_start(update, context):
-    query=update.callback_query
-    await query.answer()
-    gift_id=query.data.split("giftapi_",1)[1]
-    result=await get_api_gifts()
-    if result.get("ok") is not True:
-        await query.message.edit_text(tr(query.from_user.id,"api_error_detailed",message=result.get("message","Ошибка API")),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(tr(query.from_user.id,"back"),callback_data="main_shop")]]),parse_mode="HTML")
-        return ConversationHandler.END
-    gift=next((item for item in (result.get("result") or []) if str(item.get("gift_id"))==str(gift_id)),None)
-    if not gift:
-        await query.message.edit_text("❌ Этот подарок больше недоступен.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎁 Обновить подарки",callback_data="shop_gifts")]]))
-        return ConversationHandler.END
-    price=int(gift.get("price_uzs",0))
-    if price<=0:
-        await query.message.edit_text("❌ API не вернул цену подарка.")
-        return ConversationHandler.END
-
-    gifts=result.get("result") or []
-    gift_index=1
-    for idx,item in enumerate(gifts[:30],1):
-        if str(item.get("gift_id")) == str(gift_id):
-            gift_index=idx
-            break
-
-    gift_name=str(gift.get("name") or f"Подарок #{gift_index}").strip()
-    emoji_id=str(gift.get("emoji_id") or "").strip()
-
-    context.user_data.clear()
-    context.user_data["gift_api_id"]=str(gift_id)
-    context.user_data["gift_api_price"]=price
-    context.user_data["gift_api_name"]=gift_name
-    context.user_data["gift_api_emoji_id"]=emoji_id
-    keyboard=[
-        [InlineKeyboardButton("👤 Отправить не анонимно",callback_data="gift_anonymous_no")],
-        [InlineKeyboardButton("🕵️ Отправить анонимно",callback_data="gift_anonymous_yes")],
-        [InlineKeyboardButton("❌ Отмена",callback_data="cancel_gift")],
-    ]
-    if emoji_id:
-        try:
-            await send_custom_emoji(
-                context.bot,
-                query.from_user.id,
-                "🎁",
-                emoji_id,
-            )
-        except Exception:
-            logger.exception("GIFT CUSTOM EMOJI DISPLAY ERROR | gift_id=%s | emoji_id=%s", gift_id, emoji_id)
-
-    await query.message.edit_text(
-        f"🎁 <b>{escape(gift_name)}</b>\n\n"
-        f"💰 Стоимость: <b>{price:,} сум</b>\n\n"
-        "Как отправить подарок?",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML",
-    )
-    return GIFT_SEND_TYPE
-
-async def gift_send_type(update, context):
-
-    query = update.callback_query
-
-    await query.answer()
-
-    if query.data == "cancel_gift":
-
-        return await cancel(update, context)
-
-    context.user_data["anonymous"] = (
-
-        query.data == "gift_anonymous_yes"
-
-    )
-
-    keyboard = [
-
-        [
-
-            InlineKeyboardButton(
-
-                "✍️ Добавить текст",
-
-                callback_data="gift_text_yes",
-
-            )
-
-        ],
-
-        [
-
-            InlineKeyboardButton(
-
-                "➡️ Без текста",
-
-                callback_data="gift_text_no",
-
-            )
-
-        ],
-
-        [
-
-            InlineKeyboardButton(
-
-                "❌ Отмена",
-
-                callback_data="cancel_gift",
-
-            )
-
-        ],
-
-    ]
-
-    await query.message.edit_text(
-
-        "📝 <b>Добавить текст к подарку?</b>",
-
-        reply_markup=InlineKeyboardMarkup(keyboard),
-
-        parse_mode="HTML",
-
-    )
-
-    return GIFT_TEXT
-
-
-async def gift_text_choice(update, context):
-
-    query = update.callback_query
-
-    await query.answer()
-
-    if query.data == "cancel_gift":
-
-        return await cancel(update, context)
-
-    if query.data == "gift_text_yes":
-
-        await query.message.edit_text(
-
-            tr(
-                query.from_user.id,
-                "gift_text",
-            )
-
-        )
-
-        return GIFT_TEXT
-
-    context.user_data["gift_text"] = ""
-
-    await query.message.edit_text(
-
-        tr(
-            query.from_user.id,
-            "gift_username",
-        )
-
-    )
-
-    return GIFT_USERNAME
-
-
-async def gift_text_input(update, context):
-
-    context.user_data["gift_text"] = (
-        update.message.text.strip()
-    )
-
-    await update.message.reply_text(
-
-        tr(
-            update.effective_user.id,
-            "gift_username",
-        )
-
-    )
-
-    return GIFT_USERNAME
-
-
-async def send_custom_emoji(
-    bot,
-    chat_id,
-    emoji,
-    emoji_id,
-):
-
-    await bot.send_message(
-
-        chat_id=chat_id,
-
-        text=emoji,
-
-        entities=[
-
-            MessageEntity(
-
-                type=MessageEntity.CUSTOM_EMOJI,
-
-                offset=0,
-
-                length=2,
-
-                custom_emoji_id=emoji_id,
-
-            )
-
-        ],
-
-    )
-
-
-async def gift_username(update, context):
-    username=update.message.text.strip().replace("@","")
-    if not re.fullmatch(r"[A-Za-z0-9_]{5,32}",username):
-        await update.message.reply_text("❌ Введите корректный юзернейм.")
-        return GIFT_USERNAME
-    user=update.effective_user
-    gift_id=str(context.user_data.get("gift_api_id") or "")
-    price=int(context.user_data.get("gift_api_price") or 0)
-    gift_name=str(context.user_data.get("gift_api_name") or "Подарок").strip()
-    anonymous=bool(context.user_data.get("anonymous",False))
-    gift_text=str(context.user_data.get("gift_text", ""))[:200]
-    if not gift_id or price<=0:
-        await update.message.reply_text("❌ Параметры подарка потеряны. Откройте раздел подарков заново.")
-        context.user_data.clear()
-        return ConversationHandler.END
-    data=get_user(user.id,user.username,user.first_name)
-    if data["balance"]<price:
-        await update.message.reply_text(tr(user.id,"not_enough",price=price,balance=data["balance"]))
-        context.user_data.clear()
-        return ConversationHandler.END
-    status_msg=await update.message.reply_text("🔍 Проверяем username...")
-    valid,info=await check_telegram_user(username)
-    if not valid:
-        await status_msg.edit_text(tr(user.id,"api_error_detailed",message=str(info)))
-        context.user_data.clear()
-        return ConversationHandler.END
-    await status_msg.edit_text("🎁 Оформляем подарок через API...")
-    idem_key=f"gift-{user.id}-{gift_id}-{update.message.message_id}"
-    result=await buy_api_gift(username,gift_id,gift_text,anonymous,idem_key)
-    if result.get("ok") is not True:
-        await status_msg.edit_text(tr(user.id,"api_error_detailed",message=result.get("message","Не удалось купить подарок")),parse_mode="HTML")
-        context.user_data.clear()
-        return ConversationHandler.END
-    api_result=result.get("result") or {}
-    actual_price=int(api_result.get("cost_uzs") or price)
-    order_id=str(api_result.get("order_id") or "")
-    change_balance(user.id,-actual_price)
-    try:
-        await context.bot.send_message(
-            ADMIN_ID,
-            ("🎁 <b>НОВЫЙ API ЗАКАЗ ПОДАРКА</b>\n\n"
-             f"🎁 Подарок: <b>{escape(gift_name)}</b>\n"
-             f"🆔 Gift ID: <code>{escape(gift_id)}</code>\n"
-             f"💰 Цена: {actual_price:,} сум\n"
-             f"👤 Заказал: @{escape(user.username or 'нет username')}\n"
-             f"🆔 ID: <code>{user.id}</code>\n"
-             f"🎯 Получатель: @{escape(username)}\n"
-             f"📝 Текст: {escape(gift_text) if gift_text else 'без текста'}\n"
-             f"🕵️ Анонимно: {'да' if anonymous else 'нет'}\n"
-             f"🧾 Order ID: <code>{escape(order_id or 'не указан')}</code>"),
-            parse_mode="HTML",
-        )
-    except Exception:
-        logger.exception("GIFT ADMIN NOTIFICATION ERROR")
-    await status_msg.edit_text(
-        ("✅ <b>Подарок успешно куплен!</b>\n\n"
-         f"🎁 Подарок: <b>{escape(gift_name)}</b>\n"
-         f"👤 Получатель: @{escape(username)}\n"
-         f"💰 Списано: <b>{actual_price:,} сум</b>\n"
-         f"🧾 Order ID: <code>{escape(order_id or 'не указан')}</code>"),
-        parse_mode="HTML",
-    )
-    context.user_data.clear()
-    return ConversationHandler.END
-
-
-# =========================================================
 # ОТМЕНА
 # =========================================================
 
@@ -2798,7 +2324,6 @@ def admin_keyboard():
         ],
 
         [
-            # Добавлена кнопка рассылки всем пользователям
             InlineKeyboardButton(
                 "📢 Рассылка всем",
                 callback_data="admin_broadcast",
@@ -2806,7 +2331,6 @@ def admin_keyboard():
         ],
 
         [
-            # Добавлена кнопка создания промокода
             InlineKeyboardButton(
                 "🎟 Создать промокод",
                 callback_data="admin_create_promo",
@@ -3843,14 +3367,6 @@ def main():
 
             CallbackQueryHandler(
 
-                gift_start,
-
-                pattern=r"^giftapi_.+$",
-
-            ),
-
-            CallbackQueryHandler(
-
                 admin_callback,
 
                 pattern=r"^admin_(add|sub|ban|unban|message|broadcast|create_promo)$",
@@ -3929,66 +3445,6 @@ def main():
                     buy_confirm,
 
                     pattern=r"^(confirm_buy|cancel_buy)$",
-
-                )
-
-            ],
-
-            GIFT_SEND_TYPE: [
-
-                CallbackQueryHandler(
-
-                    gift_send_type,
-
-                    pattern=(
-
-                        r"^(gift_anonymous_yes|"
-
-                        r"gift_anonymous_no|"
-
-                        r"cancel_gift)$"
-
-                    ),
-
-                )
-
-            ],
-
-            GIFT_TEXT: [
-
-                CallbackQueryHandler(
-
-                    gift_text_choice,
-
-                    pattern=(
-
-                        r"^(gift_text_yes|"
-
-                        r"gift_text_no|"
-
-                        r"cancel_gift)$"
-
-                    ),
-
-                ),
-
-                MessageHandler(
-
-                    filters.TEXT & ~filters.COMMAND,
-
-                    gift_text_input,
-
-                ),
-
-            ],
-
-            GIFT_USERNAME: [
-
-                MessageHandler(
-
-                    filters.TEXT & ~filters.COMMAND,
-
-                    gift_username,
 
                 )
 
@@ -4261,7 +3717,7 @@ def main():
     application.add_handler(
         CallbackQueryHandler(
             main_buttons,
-            pattern=r"^(main_shop|shop_.*|buy_.*|gift_.*|back_main|language_menu)$",
+            pattern=r"^(main_shop|shop_.*|buy_.*|back_main|language_menu)$",
         )
     )
 
