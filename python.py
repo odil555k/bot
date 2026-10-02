@@ -1,4 +1,5 @@
 import os
+import asyncio
 import re
 import uuid
 import sqlite3
@@ -42,7 +43,7 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "StarrPayy_support")
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
 PARTNER_API_URL = os.environ.get(
     "PARTNER_API_URL",
-    "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api/v2",
+    "https://69544e6345d5c.xvest5.ru/ApilarimBot/api/v2",
 ).rstrip("/")
 PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
 
@@ -57,6 +58,7 @@ CARD_NUMBER = os.environ.get(
 )
 
 PRICE_PER_STAR = 220
+NUMBER_MARKUP_PERCENT = 30
 
 PREMIUM_PRICES = {
     3: 165000,
@@ -351,6 +353,19 @@ def init_db():
             user_id INTEGER,
             code TEXT,
             PRIMARY KEY (user_id, code)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS number_orders (
+            order_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            country_code TEXT NOT NULL,
+            country_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            price_uzs INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL
         )
     """)
 
@@ -1134,6 +1149,13 @@ async def main_buttons(update, context):
 
             [
                 InlineKeyboardButton(
+                    "📱 Telegram номера",
+                    callback_data="shop_numbers",
+                )
+            ],
+
+            [
+                InlineKeyboardButton(
                     tr(user.id, "back"),
                     callback_data="back_main",
                 )
@@ -1151,6 +1173,10 @@ async def main_buttons(update, context):
 
         )
 
+        return
+
+    if query.data == "shop_numbers":
+        await show_number_countries(query, user.id)
         return
 
     if query.data == "shop_stars":
@@ -1247,6 +1273,401 @@ async def main_buttons(update, context):
 
         )
 
+        return
+
+
+# =========================================================
+# TELEGRAM НОМЕРА
+# =========================================================
+
+def country_flag(code):
+    code = (code or "").upper()
+    if len(code) != 2 or not code.isalpha():
+        return "🌐"
+    return chr(127397 + ord(code[0])) + chr(127397 + ord(code[1]))
+
+
+def number_sell_price(api_price):
+    return math.ceil(int(api_price) * (100 + NUMBER_MARKUP_PERCENT) / 100)
+
+
+async def get_number_countries():
+    result = await partner_api_request("/numbers/countries", method="GET")
+    if result.get("ok") is not True:
+        return False, result.get("message") or result.get("code") or "Не удалось получить список стран."
+    countries = result.get("result") or []
+    if not isinstance(countries, list):
+        return False, "API вернул некорректный список стран."
+
+    prepared = []
+    for item in countries:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "").upper()
+        name = str(item.get("name") or code).strip()
+        try:
+            api_price = int(item.get("price_uzs"))
+        except (TypeError, ValueError):
+            continue
+        if len(code) != 2 or api_price <= 0:
+            continue
+
+        prepared.append({
+            "code": code,
+            "name": name,
+            "api_price": api_price,
+            "price": number_sell_price(api_price),
+        })
+
+    prepared.sort(key=lambda x: (x["price"], x["name"]))
+    return True, prepared
+
+
+async def show_number_countries(query, user_id):
+    ok, countries = await get_number_countries()
+
+    if not ok:
+        await query.message.edit_text(
+            f"❌ {escape(str(countries))}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")]
+            ]),
+            parse_mode="HTML",
+        )
+        return
+
+    if not countries:
+        await query.message.edit_text(
+            "❌ Сейчас доступных стран для номеров нет.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")]
+            ]),
+        )
+        return
+
+    keyboard = []
+    for item in countries:
+        label = (
+            f'{country_flag(item["code"])} {item["name"]} — '
+            f'{item["price"]:,} сум'
+        )
+        keyboard.append([
+            InlineKeyboardButton(
+                label,
+                callback_data=f'numbers_country_{item["code"]}',
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            tr(user_id, "back"),
+            callback_data="main_shop",
+        )
+    ])
+
+    await query.message.edit_text(
+        "📱 <b>Telegram номера</b>\n\n"
+        "Выберите страну:\n"
+        "💰 Цены отсортированы от низкой к высокой.\n"
+        f"📈 Наценка магазина: {NUMBER_MARKUP_PERCENT}%",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
+    )
+
+
+async def number_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    user = query.from_user
+
+    if await check_ban(update):
+        return
+
+    data = query.data
+
+    if data == "shop_numbers":
+        await show_number_countries(query, user.id)
+        return
+
+    if data == "numbers_back":
+        await show_number_countries(query, user.id)
+        return
+
+    if data.startswith("numbers_country_"):
+        country_code = data.rsplit("_", 1)[-1].upper()
+
+        await query.message.edit_text(
+            "🔄 Получаем номер...\n\nПожалуйста, подождите.",
+        )
+
+        ok, countries = await get_number_countries()
+        if not ok:
+            await query.message.edit_text(
+                f"❌ {escape(str(countries))}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="shop_numbers")]
+                ]),
+                parse_mode="HTML",
+            )
+            return
+
+        country = next(
+            (item for item in countries if item["code"] == country_code),
+            None,
+        )
+
+        if not country:
+            await query.message.edit_text(
+                "❌ Эта страна сейчас недоступна. Список обновлён.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ К списку стран", callback_data="shop_numbers")]
+                ]),
+            )
+            return
+
+        user_data = get_user(
+            user.id,
+            user.username,
+            user.first_name,
+        )
+
+        if user_data["balance"] < country["price"]:
+            await query.message.edit_text(
+                tr(
+                    user.id,
+                    "not_enough",
+                    price=country["price"],
+                    balance=user_data["balance"],
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Пополнить баланс", callback_data="main_refill")],
+                    [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")],
+                ]),
+                parse_mode="HTML",
+            )
+            return
+
+        idem_key = f"number-{user.id}-{country_code}-{uuid.uuid4().hex}"
+
+        result = await partner_api_request(
+            "/numbers/buy",
+            method="POST",
+            payload={"country_code": country_code},
+            idempotency_key=idem_key,
+        )
+
+        if result.get("ok") is not True:
+            api_error = (
+                result.get("message")
+                or result.get("code")
+                or "Не удалось купить номер."
+            )
+            await query.message.edit_text(
+                f"❌ Не удалось получить номер.\n\n{escape(str(api_error))}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Попробовать снова", callback_data="shop_numbers")],
+                    [InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")],
+                ]),
+                parse_mode="HTML",
+            )
+            return
+
+        order = result.get("result") or {}
+        order_id = str(order.get("order_id") or "")
+        phone = str(order.get("phone") or "")
+        actual_api_cost = int(order.get("cost_uzs") or country["api_price"])
+        actual_price = number_sell_price(actual_api_cost)
+
+        if not order_id or not phone:
+            await query.message.edit_text(
+                "❌ API купил номер, но не вернул номер или order_id. "
+                "Обратитесь к администратору.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")]
+                ]),
+            )
+            return
+
+        # Если цена API изменилась между списком и покупкой,
+        # используем фактическую цену из ответа API.
+        if user_data["balance"] < actual_price:
+            await query.message.edit_text(
+                "❌ Цена номера изменилась, и на балансе недостаточно средств.\n\n"
+                f"💰 Нужно: {actual_price:,} сум\n"
+                f"💳 Баланс: {user_data['balance']:,} сум\n\n"
+                "Номер уже был получен от API. Обратитесь к администратору.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Пополнить баланс", callback_data="main_refill")]
+                ]),
+            )
+            logger.error(
+                "NUMBER PRICE MISMATCH | user=%s | order=%s | price=%s | balance=%s",
+                user.id, order_id, actual_price, user_data["balance"],
+            )
+            return
+
+        change_balance(user.id, -actual_price)
+
+        conn = sqlite3.connect(DB_FILE, timeout=20)
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO number_orders
+                (order_id, user_id, country_code, country_name, phone,
+                 price_uzs, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+                """,
+                (
+                    order_id,
+                    user.id,
+                    country_code,
+                    str(order.get("country_name") or country["name"]),
+                    phone,
+                    actual_price,
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        country_name = str(order.get("country_name") or country["name"])
+
+        await context.bot.send_message(
+            ADMIN_ID,
+            (
+                "📱 НОВЫЙ ЗАКАЗ НОМЕРА\n\n"
+                f"🌍 Страна: {country_flag(country_code)} {escape(country_name)}\n"
+                f"📞 Номер: `{escape(phone)}`\n"
+                f"💰 Цена: {actual_price:,} сум\n"
+                f"🧾 Order ID: `{escape(order_id)}`\n"
+                f"🆔 ID клиента: `{user.id}`\n"
+                f"👤 Клиент: @{escape(user.username or 'нет username')}"
+            ),
+            parse_mode="HTML",
+        )
+
+        await query.message.edit_text(
+            "✅ <b>Номер успешно получен!</b>\n\n"
+            f"🌍 Страна: {country_flag(country_code)} {escape(country_name)}\n"
+            f"📞 Номер: <code>{escape(phone)}</code>\n"
+            f"💰 Цена: {actual_price:,} сум\n\n"
+            "Нажмите кнопку ниже, когда нужно получить SMS-код.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "📩 Получить СМС-код",
+                        callback_data=f"numbers_sms_{order_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ К странам",
+                        callback_data="shop_numbers",
+                    )
+                ],
+            ]),
+            parse_mode="HTML",
+        )
+        return
+
+    if data.startswith("numbers_sms_"):
+        order_id = data[len("numbers_sms_"):].strip()
+
+        conn = sqlite3.connect(DB_FILE, timeout=20)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT order_id, user_id, country_code, country_name, phone, price_uzs
+            FROM number_orders
+            WHERE order_id = ? AND user_id = ?
+            """,
+            (order_id, user.id),
+        ).fetchone()
+        conn.close()
+
+        if not row:
+            await query.message.edit_text(
+                "❌ Заказ номера не найден.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")]
+                ]),
+            )
+            return
+
+        await query.message.edit_text(
+            "⏳ <b>Проверяю SMS...</b>\n\n"
+            f"📞 Номер: <code>{escape(row['phone'])}</code>\n\n"
+            "Ожидайте, бот проверяет получение кода.",
+            parse_mode="HTML",
+        )
+
+        # API рекомендует проверять код каждые 3–5 секунд.
+        for attempt in range(12):
+            result = await partner_api_request(
+                f"/numbers/code/{order_id}",
+                method="GET",
+            )
+
+            if result.get("ok") is True:
+                sms = result.get("result") or {}
+                status = str(sms.get("status") or "").lower()
+
+                if status == "finished" and sms.get("code"):
+                    code = str(sms["code"])
+                    password = str(sms.get("password") or "")
+
+                    conn = sqlite3.connect(DB_FILE, timeout=20)
+                    conn.execute(
+                        "UPDATE number_orders SET status = 'finished' WHERE order_id = ?",
+                        (order_id,),
+                    )
+                    conn.commit()
+                    conn.close()
+
+                    extra = f"\n🔐 Пароль: <code>{escape(password)}</code>" if password else ""
+
+                    await query.message.edit_text(
+                        "✅ <b>SMS-код получен!</b>\n\n"
+                        f"🌍 {country_flag(row['country_code'])} {escape(row['country_name'])}\n"
+                        f"📞 Номер: <code>{escape(row['phone'])}</code>\n"
+                        f"📩 Код: <code>{escape(code)}</code>"
+                        f"{extra}\n\n"
+                        f"🧾 Order ID: <code>{escape(order_id)}</code>",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")]
+                        ]),
+                        parse_mode="HTML",
+                    )
+                    return
+
+                if status not in {"waiting", ""}:
+                    message = str(
+                        sms.get("message")
+                        or f"Статус заказа: {status}"
+                    )
+                    await query.message.edit_text(
+                        f"❌ {escape(message)}",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔄 Проверить ещё раз", callback_data=f"numbers_sms_{order_id}")],
+                            [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")],
+                        ]),
+                        parse_mode="HTML",
+                    )
+                    return
+
+            # Не превышаем лимит API и ждём следующий polling.
+            if attempt < 11:
+                await asyncio.sleep(5)
+
+        await query.message.edit_text(
+            "⏳ SMS пока не пришло.\n\n"
+            "Нажмите «Проверить ещё раз», когда код придёт.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Проверить ещё раз", callback_data=f"numbers_sms_{order_id}")],
+                [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")],
+            ]),
+        )
         return
 
 
@@ -2599,6 +3020,13 @@ def main():
         CallbackQueryHandler(
             refill_admin_contact,
             pattern=r"^refill_admin$",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            number_callback,
+            pattern=r"^(shop_numbers|numbers_back|numbers_country_.+|numbers_sms_.+)$",
         )
     )
 
