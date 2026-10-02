@@ -40,25 +40,72 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "StarrPayy_support")
 
+
+# =========================================================
+# PARTNER API — STARS / PREMIUM
+# =========================================================
+
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
+
 PARTNER_API_URL = os.environ.get(
     "PARTNER_API_URL",
     "https://69544e6345d5c.xvest5.ru/ApilarimBot/api/v2",
 ).rstrip("/")
-PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
+
+PARTNER_API_TIMEOUT = float(
+    os.environ.get("PARTNER_API_TIMEOUT", "40")
+)
+
+
+# =========================================================
+# AVO SIM API — TELEGRAM НОМЕРА
+# =========================================================
+
+SIM_API_KEY = os.environ["SIM_API_KEY"]
+
+SIM_API_BASE_URL = os.environ.get(
+    "SIM_API_BASE_URL",
+    "https://69544e6345d5c.xvest5.ru/AVOSimBot/api/",
+).rstrip("/")
+
+SIM_API_TIMEOUT = float(
+    os.environ.get("SIM_API_TIMEOUT", "40")
+)
+
+
+# =========================================================
+# CARDXABAR
+# =========================================================
 
 CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
-CARDXABAR_DRY_RUN = os.environ.get("CARDXABAR_DRY_RUN", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+CARDXABAR_DRY_RUN = (
+    os.environ.get(
+        "CARDXABAR_DRY_RUN",
+        "false"
+    ).strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+
 
 DB_FILE = "bot_database.db"
+
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
     "5614 6835 1772 2716"
 )
 
+
+# =========================================================
+# ЦЕНЫ
+# =========================================================
+
 PRICE_PER_STAR = 220
+
+# Наценка на Telegram номера
 NUMBER_MARKUP_PERCENT = 30
+
 
 PREMIUM_PRICES = {
     3: 165000,
@@ -524,23 +571,31 @@ def get_users():
 
 
 def create_cardxabar_payment(user_id, requested_amount):
+
     if requested_amount < 1000 or requested_amount > 9_999_900:
-        raise ValueError("Сумма должна быть от 1000 до 9 999 900 сум.")
+        raise ValueError(
+            "Сумма должна быть от 1000 до 9 999 900 сум."
+        )
 
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
     try:
+
         for _ in range(200):
+
             suffix = uuid.uuid4().int % 90 + 10
             payment_amount = requested_amount + suffix
 
             try:
+
                 payment_id = uuid.uuid4().hex
+
                 cursor.execute(
                     """
                     INSERT INTO cardxabar_payments
-                    (payment_id, user_id, requested_amount, payment_amount, status, created_at)
+                    (payment_id, user_id, requested_amount,
+                     payment_amount, status, created_at)
                     VALUES (?, ?, ?, ?, 'pending', ?)
                     """,
                     (
@@ -548,24 +603,38 @@ def create_cardxabar_payment(user_id, requested_amount):
                         user_id,
                         requested_amount,
                         payment_amount,
-                        datetime.now().isoformat(timespec="seconds"),
+                        datetime.now().isoformat(
+                            timespec="seconds"
+                        ),
                     ),
                 )
+
                 conn.commit()
+
                 return payment_id, payment_amount
+
             except sqlite3.IntegrityError:
+
                 conn.rollback()
                 continue
 
-        raise RuntimeError("Не удалось создать уникальную сумму платежа.")
+        raise RuntimeError(
+            "Не удалось создать уникальную сумму платежа."
+        )
+
     finally:
+
         conn.close()
 
 
 def tr(user_id, key, **kwargs):
 
     data = get_user(user_id)
-    lang = data.get("lang", "ru")
+
+    lang = data.get(
+        "lang",
+        "ru",
+    )
 
     text = TEXTS.get(
         lang,
@@ -620,25 +689,50 @@ async def check_ban(update):
 # =========================================================
 
 def send_json(handler, status, payload):
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    body = json.dumps(
+        payload,
+        ensure_ascii=False
+    ).encode("utf-8")
+
     handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Content-Length", str(len(body)))
+
+    handler.send_header(
+        "Content-Type",
+        "application/json; charset=utf-8"
+    )
+
+    handler.send_header(
+        "Content-Length",
+        str(len(body))
+    )
+
     handler.end_headers()
+
     handler.wfile.write(body)
 
 
 def notify_user_balance(user_id, credited_amount):
+
     try:
+
         user = get_user(user_id)
-        lang = user.get("lang", "ru")
+
+        lang = user.get(
+            "lang",
+            "ru"
+        )
+
         if lang == "uz":
+
             text = (
                 "✅ Balans muvaffaqiyatli to'ldirildi!\n\n"
                 f"💰 Qo'shildi: {credited_amount:,} so'm\n"
                 f"💳 Joriy balans: {user['balance']:,} so'm"
             )
+
         else:
+
             text = (
                 "✅ Баланс успешно пополнен!\n\n"
                 f"💰 Зачислено: {credited_amount:,} сум\n"
@@ -654,81 +748,239 @@ def notify_user_balance(user_id, credited_amount):
             },
             timeout=15,
         )
+
         response.raise_for_status()
+
     except Exception:
-        logger.exception("BALANCE NOTIFICATION ERROR | user_id=%s", user_id)
+
+        logger.exception(
+            "BALANCE NOTIFICATION ERROR | user_id=%s",
+            user_id
+        )
 
 
 class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
+
         if self.path != "/":
-            send_json(self, 404, {"ok": False, "error": "Not found"})
+
+            send_json(
+                self,
+                404,
+                {
+                    "ok": False,
+                    "error": "Not found"
+                }
+            )
+
             return
 
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+
+        self.send_header(
+            "Content-Type",
+            "text/plain; charset=utf-8"
+        )
+
         self.end_headers()
-        self.wfile.write(b"Bot is running!")
+
+        self.wfile.write(
+            b"Bot is running!"
+        )
+
 
     def do_POST(self):
+
         if self.path != "/cardxabar":
-            send_json(self, 404, {"ok": False, "error": "Not found"})
+
+            send_json(
+                self,
+                404,
+                {
+                    "ok": False,
+                    "error": "Not found"
+                }
+            )
+
             return
 
-        supplied_key = self.headers.get("X-CardXabar-Key", "")
-        if not supplied_key or not hmac.compare_digest(supplied_key, CARDXABAR_API_KEY):
-            send_json(self, 401, {"ok": False, "error": "Unauthorized"})
+        supplied_key = self.headers.get(
+            "X-CardXabar-Key",
+            ""
+        )
+
+        if (
+            not supplied_key
+            or not hmac.compare_digest(
+                supplied_key,
+                CARDXABAR_API_KEY
+            )
+        ):
+
+            send_json(
+                self,
+                401,
+                {
+                    "ok": False,
+                    "error": "Unauthorized"
+                }
+            )
+
             return
 
         try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > 256_000:
-                send_json(self, 400, {"ok": False, "error": "Invalid request size"})
+
+            content_length = int(
+                self.headers.get(
+                    "Content-Length",
+                    "0"
+                )
+            )
+
+            if (
+                content_length <= 0
+                or content_length > 256_000
+            ):
+
+                send_json(
+                    self,
+                    400,
+                    {
+                        "ok": False,
+                        "error": "Invalid request size"
+                    }
+                )
+
                 return
 
-            raw_body = self.rfile.read(content_length)
-            payload = json.loads(raw_body.decode("utf-8"))
+            raw_body = self.rfile.read(
+                content_length
+            )
 
-            payment_amount = int(payload.get("payment_amount", 0))
-            fingerprint = str(payload.get("fingerprint", "")).strip()
-            raw_text = str(payload.get("raw_text", ""))[:10000]
+            payload = json.loads(
+                raw_body.decode("utf-8")
+            )
+
+            payment_amount = int(
+                payload.get(
+                    "payment_amount",
+                    0
+                )
+            )
+
+            fingerprint = str(
+                payload.get(
+                    "fingerprint",
+                    ""
+                )
+            ).strip()
+
+            raw_text = str(
+                payload.get(
+                    "raw_text",
+                    ""
+                )
+            )[:10000]
 
             if payment_amount <= 0:
-                send_json(self, 400, {"ok": False, "error": "Invalid amount"})
+
+                send_json(
+                    self,
+                    400,
+                    {
+                        "ok": False,
+                        "error": "Invalid amount"
+                    }
+                )
+
                 return
 
-            if not fingerprint or len(fingerprint) > 128:
-                send_json(self, 400, {"ok": False, "error": "Invalid fingerprint"})
+            if (
+                not fingerprint
+                or len(fingerprint) > 128
+            ):
+
+                send_json(
+                    self,
+                    400,
+                    {
+                        "ok": False,
+                        "error": "Invalid fingerprint"
+                    }
+                )
+
                 return
 
-        except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
-            send_json(self, 400, {"ok": False, "error": "Invalid JSON"})
+        except (
+            ValueError,
+            TypeError,
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+        ):
+
+            send_json(
+                self,
+                400,
+                {
+                    "ok": False,
+                    "error": "Invalid JSON"
+                }
+            )
+
             return
 
-        conn = sqlite3.connect(DB_FILE, timeout=20)
+        conn = sqlite3.connect(
+            DB_FILE,
+            timeout=20
+        )
+
         conn.row_factory = sqlite3.Row
 
         try:
-            conn.execute("BEGIN IMMEDIATE")
+
+            conn.execute(
+                "BEGIN IMMEDIATE"
+            )
 
             duplicate = conn.execute(
-                "SELECT 1 FROM cardxabar_transactions WHERE fingerprint = ? LIMIT 1",
+                """
+                SELECT 1
+                FROM cardxabar_transactions
+                WHERE fingerprint = ?
+                LIMIT 1
+                """,
                 (fingerprint,),
             ).fetchone()
 
             if duplicate:
+
                 conn.commit()
-                send_json(self, 200, {"ok": True, "status": "duplicate"})
+
+                send_json(
+                    self,
+                    200,
+                    {
+                        "ok": True,
+                        "status": "duplicate"
+                    }
+                )
+
                 return
 
             payment = conn.execute(
                 """
-                SELECT payment_id, user_id, requested_amount, payment_amount, status, created_at
+                SELECT payment_id,
+                       user_id,
+                       requested_amount,
+                       payment_amount,
+                       status,
+                       created_at
                 FROM cardxabar_payments
                 WHERE payment_amount = ?
                   AND status = 'pending'
-                  AND datetime(created_at) >= datetime('now', '-60 minutes')
+                  AND datetime(created_at)
+                      >= datetime('now', '-60 minutes')
                 ORDER BY created_at ASC
                 LIMIT 1
                 """,
@@ -736,22 +988,48 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchone()
 
             if not payment:
+
                 conn.rollback()
-                send_json(self, 404, {"ok": True, "status": "payment_not_found"})
+
+                send_json(
+                    self,
+                    404,
+                    {
+                        "ok": True,
+                        "status": "payment_not_found"
+                    }
+                )
+
                 return
 
             user = conn.execute(
-                "SELECT user_id, balance FROM users WHERE user_id = ?",
+                """
+                SELECT user_id, balance
+                FROM users
+                WHERE user_id = ?
+                """,
                 (payment["user_id"],),
             ).fetchone()
 
             if not user:
+
                 conn.rollback()
-                send_json(self, 404, {"ok": False, "error": "User not found"})
+
+                send_json(
+                    self,
+                    404,
+                    {
+                        "ok": False,
+                        "error": "User not found"
+                    }
+                )
+
                 return
 
             if CARDXABAR_DRY_RUN:
+
                 conn.rollback()
+
                 send_json(
                     self,
                     200,
@@ -764,19 +1042,25 @@ class Handler(BaseHTTPRequestHandler):
                         "payment_amount": payment["payment_amount"],
                     },
                 )
+
                 return
 
             conn.execute(
                 """
                 INSERT INTO cardxabar_transactions
-                (fingerprint, payment_amount, raw_text, created_at)
+                (fingerprint,
+                 payment_amount,
+                 raw_text,
+                 created_at)
                 VALUES (?, ?, ?, ?)
                 """,
                 (
                     fingerprint,
                     payment_amount,
                     raw_text,
-                    datetime.now().isoformat(timespec="seconds"),
+                    datetime.now().isoformat(
+                        timespec="seconds"
+                    ),
                 ),
             )
 
@@ -786,27 +1070,42 @@ class Handler(BaseHTTPRequestHandler):
                 SET balance = balance + ?
                 WHERE user_id = ?
                 """,
-                (payment["requested_amount"], payment["user_id"]),
+                (
+                    payment["requested_amount"],
+                    payment["user_id"],
+                ),
             )
 
             conn.execute(
                 """
                 UPDATE cardxabar_payments
                 SET status = 'paid'
-                WHERE payment_id = ? AND status = 'pending'
+                WHERE payment_id = ?
+                  AND status = 'pending'
                 """,
-                (payment["payment_id"],),
+                (
+                    payment["payment_id"],
+                ),
             )
 
             new_balance = conn.execute(
-                "SELECT balance FROM users WHERE user_id = ?",
-                (payment["user_id"],),
+                """
+                SELECT balance
+                FROM users
+                WHERE user_id = ?
+                """,
+                (
+                    payment["user_id"],
+                ),
             ).fetchone()["balance"]
 
             conn.commit()
 
             user_id = payment["user_id"]
-            credited_amount = payment["requested_amount"]
+
+            credited_amount = payment[
+                "requested_amount"
+            ]
 
             send_json(
                 self,
@@ -822,26 +1121,78 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         except sqlite3.IntegrityError:
+
             conn.rollback()
-            send_json(self, 200, {"ok": True, "status": "duplicate"})
+
+            send_json(
+                self,
+                200,
+                {
+                    "ok": True,
+                    "status": "duplicate"
+                }
+            )
+
         except Exception:
+
             conn.rollback()
-            logger.exception("PAYMENT PROCESSING ERROR")
-            send_json(self, 500, {"ok": False, "error": "Internal server error"})
+
+            logger.exception(
+                "PAYMENT PROCESSING ERROR"
+            )
+
+            send_json(
+                self,
+                500,
+                {
+                    "ok": False,
+                    "error": "Internal server error"
+                }
+            )
+
         finally:
+
             conn.close()
 
-        if not CARDXABAR_DRY_RUN and 'user_id' in locals() and 'credited_amount' in locals():
-            notify_user_balance(user_id, credited_amount)
+        if (
+            not CARDXABAR_DRY_RUN
+            and "user_id" in locals()
+            and "credited_amount" in locals()
+        ):
 
-    def log_message(self, format, *args):
+            notify_user_balance(
+                user_id,
+                credited_amount
+            )
+
+
+    def log_message(
+        self,
+        format,
+        *args
+    ):
         return
 
 
 def run_web():
-    port = int(os.environ.get("PORT", 8080))
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    logger.info("WEB SERVER STARTED ON PORT %s", port)
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            8080
+        )
+    )
+
+    server = ThreadingHTTPServer(
+        ("0.0.0.0", port),
+        Handler
+    )
+
+    logger.info(
+        "WEB SERVER STARTED ON PORT %s",
+        port
+    )
+
     server.serve_forever()
 
 
@@ -855,14 +1206,20 @@ def main_keyboard(user_id):
 
         [
             InlineKeyboardButton(
-                tr(user_id, "services"),
+                tr(
+                    user_id,
+                    "services"
+                ),
                 callback_data="main_shop",
             )
         ],
 
         [
             InlineKeyboardButton(
-                tr(user_id, "refill"),
+                tr(
+                    user_id,
+                    "refill"
+                ),
                 callback_data="main_refill",
             ),
 
@@ -881,7 +1238,10 @@ def main_keyboard(user_id):
 
         [
             InlineKeyboardButton(
-                tr(user_id, "language"),
+                tr(
+                    user_id,
+                    "language"
+                ),
                 callback_data="language_menu",
             )
         ],
@@ -913,11 +1273,15 @@ async def start(update, context):
         tr(
             user.id,
             "welcome",
-            name=escape(user.first_name),
+            name=escape(
+                user.first_name
+            ),
             balance=data["balance"],
         ),
 
-        reply_markup=main_keyboard(user.id),
+        reply_markup=main_keyboard(
+            user.id
+        ),
 
         parse_mode="HTML",
 
@@ -928,9 +1292,13 @@ async def start(update, context):
 # ПРОФИЛЬ
 # =========================================================
 
-async def profile_callback(update, context):
+async def profile_callback(
+    update,
+    context
+):
 
     query = update.callback_query
+
     await query.answer()
 
     user = query.from_user
@@ -941,13 +1309,19 @@ async def profile_callback(update, context):
         user.first_name,
     )
 
-    username = user.username or "нет username"
+    username = (
+        user.username
+        or "нет username"
+    )
 
     keyboard = InlineKeyboardMarkup([
 
         [
             InlineKeyboardButton(
-                tr(user.id, "back"),
+                tr(
+                    user.id,
+                    "back"
+                ),
                 callback_data="back_main",
             )
         ]
@@ -975,16 +1349,27 @@ async def profile_callback(update, context):
 
 
 # =========================================================
-# АКТИВАЦИЯ ПРОМОКОДА
+# ПРОМОКОД
 # =========================================================
 
-async def promo_menu_callback(update, context):
+async def promo_menu_callback(
+    update,
+    context
+):
+
     query = update.callback_query
+
     await query.answer()
+
     context.user_data.clear()
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_main")]
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад",
+                callback_data="back_main"
+            )
+        ]
     ])
 
     await query.message.edit_text(
@@ -992,53 +1377,114 @@ async def promo_menu_callback(update, context):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
     return ACTIVATE_PROMO_STATE
 
 
-async def activate_promo_input(update, context):
-    user = update.effective_user
-    code = update.message.text.strip().upper()
+async def activate_promo_input(
+    update,
+    context
+):
 
-    conn = sqlite3.connect(DB_FILE, timeout=20)
+    user = update.effective_user
+
+    code = (
+        update.message.text
+        .strip()
+        .upper()
+    )
+
+    conn = sqlite3.connect(
+        DB_FILE,
+        timeout=20
+    )
+
     conn.row_factory = sqlite3.Row
+
     cursor = conn.cursor()
 
-    promo = cursor.execute("SELECT * FROM promos WHERE code = ?", (code,)).fetchone()
+    promo = cursor.execute(
+        "SELECT * FROM promos WHERE code = ?",
+        (code,)
+    ).fetchone()
 
     if not promo:
+
         conn.close()
-        await update.message.reply_text("❌ Такого промокода не существует.")
+
+        await update.message.reply_text(
+            "❌ Такого промокода не существует."
+        )
+
         context.user_data.clear()
+
         return ConversationHandler.END
 
     activated = cursor.execute(
-        "SELECT 1 FROM promo_activations WHERE user_id = ? AND code = ?",
-        (user.id, code)
+        """
+        SELECT 1
+        FROM promo_activations
+        WHERE user_id = ?
+          AND code = ?
+        """,
+        (
+            user.id,
+            code
+        )
     ).fetchone()
 
     if activated:
+
         conn.close()
-        await update.message.reply_text("❌ Вы уже активировали этот промокод.")
+
+        await update.message.reply_text(
+            "❌ Вы уже активировали этот промокод."
+        )
+
         context.user_data.clear()
+
         return ConversationHandler.END
 
     if promo["uses_count"] >= promo["max_uses"]:
+
         conn.close()
-        await update.message.reply_text("❌ Лимит активаций этого промокода исчерпан.")
+
+        await update.message.reply_text(
+            "❌ Лимит активаций этого промокода исчерпан."
+        )
+
         context.user_data.clear()
+
         return ConversationHandler.END
 
     amount = promo["amount"]
-    change_balance(user.id, amount)
+
+    change_balance(
+        user.id,
+        amount
+    )
 
     cursor.execute(
-        "UPDATE promos SET uses_count = uses_count + 1 WHERE code = ?",
+        """
+        UPDATE promos
+        SET uses_count = uses_count + 1
+        WHERE code = ?
+        """,
         (code,)
     )
+
     cursor.execute(
-        "INSERT INTO promo_activations (user_id, code) VALUES (?, ?)",
-        (user.id, code)
+        """
+        INSERT INTO promo_activations
+        (user_id, code)
+        VALUES (?, ?)
+        """,
+        (
+            user.id,
+            code
+        )
     )
+
     conn.commit()
     conn.close()
 
@@ -1047,7 +1493,9 @@ async def activate_promo_input(update, context):
         f"💰 Вам начислено: {amount:,} сум",
         parse_mode="HTML"
     )
+
     context.user_data.clear()
+
     return ConversationHandler.END
 
 
@@ -1055,12 +1503,16 @@ async def activate_promo_input(update, context):
 # ГЛАВНЫЕ КНОПКИ
 # =========================================================
 
-async def main_buttons(update, context):
+async def main_buttons(
+    update,
+    context
+):
 
     if await check_ban(update):
         return
 
     query = update.callback_query
+
     await query.answer()
 
     user = query.from_user
@@ -1078,11 +1530,15 @@ async def main_buttons(update, context):
             tr(
                 user.id,
                 "welcome",
-                name=escape(user.first_name),
+                name=escape(
+                    user.first_name
+                ),
                 balance=data["balance"],
             ),
 
-            reply_markup=main_keyboard(user.id),
+            reply_markup=main_keyboard(
+                user.id
+            ),
 
             parse_mode="HTML",
 
@@ -1110,7 +1566,10 @@ async def main_buttons(update, context):
 
             [
                 InlineKeyboardButton(
-                    tr(user.id, "back"),
+                    tr(
+                        user.id,
+                        "back"
+                    ),
                     callback_data="back_main",
                 )
             ],
@@ -1121,7 +1580,9 @@ async def main_buttons(update, context):
 
             "🌐 Выберите язык / Tilni tanlang",
 
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            ),
 
             parse_mode="HTML",
 
@@ -1156,7 +1617,10 @@ async def main_buttons(update, context):
 
             [
                 InlineKeyboardButton(
-                    tr(user.id, "back"),
+                    tr(
+                        user.id,
+                        "back"
+                    ),
                     callback_data="back_main",
                 )
             ],
@@ -1165,9 +1629,14 @@ async def main_buttons(update, context):
 
         await query.message.edit_text(
 
-            tr(user.id, "shop"),
+            tr(
+                user.id,
+                "shop"
+            ),
 
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            ),
 
             parse_mode="HTML",
 
@@ -1176,7 +1645,12 @@ async def main_buttons(update, context):
         return
 
     if query.data == "shop_numbers":
-        await show_number_countries(query, user.id)
+
+        await show_number_countries(
+            query,
+            user.id
+        )
+
         return
 
     if query.data == "shop_stars":
@@ -1206,7 +1680,10 @@ async def main_buttons(update, context):
 
             [
                 InlineKeyboardButton(
-                    tr(user.id, "back"),
+                    tr(
+                        user.id,
+                        "back"
+                    ),
                     callback_data="main_shop",
                 )
             ],
@@ -1221,7 +1698,9 @@ async def main_buttons(update, context):
                 price=PRICE_PER_STAR,
             ),
 
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            ),
 
             parse_mode="HTML",
 
@@ -1256,7 +1735,10 @@ async def main_buttons(update, context):
 
             [
                 InlineKeyboardButton(
-                    tr(user.id, "back"),
+                    tr(
+                        user.id,
+                        "back"
+                    ),
                     callback_data="main_shop",
                 )
             ],
@@ -1265,9 +1747,14 @@ async def main_buttons(update, context):
 
         await query.message.edit_text(
 
-            tr(user.id, "premium"),
+            tr(
+                user.id,
+                "premium"
+            ),
 
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            ),
 
             parse_mode="HTML",
 
@@ -1277,107 +1764,583 @@ async def main_buttons(update, context):
 
 
 # =========================================================
-# TELEGRAM НОМЕРА
+# TELEGRAM НОМЕРА — AVO SIM API v2.0
 # =========================================================
 
 def country_flag(code):
-    code = (code or "").upper()
-    if len(code) != 2 or not code.isalpha():
+
+    code = (
+        code or ""
+    ).upper()
+
+    if (
+        len(code) != 2
+        or not code.isalpha()
+    ):
         return "🌐"
-    return chr(127397 + ord(code[0])) + chr(127397 + ord(code[1]))
+
+    return (
+        chr(127397 + ord(code[0]))
+        + chr(127397 + ord(code[1]))
+    )
 
 
 def number_sell_price(api_price):
-    return math.ceil(int(api_price) * (100 + NUMBER_MARKUP_PERCENT) / 100)
+
+    return math.ceil(
+        int(api_price)
+        * (100 + NUMBER_MARKUP_PERCENT)
+        / 100
+    )
+
+
+def sim_extract_list(data, keys):
+
+    """
+    Универсальный разбор списков из API.
+
+    Поддерживает варианты:
+    result: [...]
+    result: {"countries": [...]}
+    result: {"servers": [...]}
+    countries: [...]
+    servers: [...]
+    """
+
+    if not isinstance(data, dict):
+        return []
+
+    for key in keys:
+
+        value = data.get(key)
+
+        if isinstance(value, list):
+            return value
+
+    result = data.get("result")
+
+    if isinstance(result, list):
+        return result
+
+    if isinstance(result, dict):
+
+        for key in keys:
+
+            value = result.get(key)
+
+            if isinstance(value, list):
+                return value
+
+    return []
+
+
+def sim_extract_value(item, keys, default=None):
+
+    if not isinstance(item, dict):
+        return default
+
+    for key in keys:
+
+        if key in item and item[key] is not None:
+            return item[key]
+
+    return default
+
+
+async def sim_api_request(
+    action,
+    params=None,
+):
+
+    api_key = (
+        SIM_API_KEY
+        or ""
+    ).strip().strip('"').strip("'")
+
+    query = {
+        "key": api_key,
+        "action": action,
+    }
+
+    if params:
+        query.update(params)
+
+    try:
+
+        async with httpx.AsyncClient(
+            timeout=SIM_API_TIMEOUT,
+            follow_redirects=True
+        ) as client:
+
+            response = await client.get(
+                SIM_API_BASE_URL,
+                params=query,
+                headers={
+                    "Accept": "application/json",
+                },
+            )
+
+        logger.info(
+            "AVO SIM API RESPONSE | action=%s | HTTP=%s | BODY=%s",
+            action,
+            response.status_code,
+            response.text[:3000],
+        )
+
+        try:
+
+            data = response.json()
+
+        except Exception:
+
+            return {
+                "ok": False,
+                "error": "API returned invalid JSON",
+                "_http_status": response.status_code,
+            }
+
+        if not isinstance(data, dict):
+
+            return {
+                "ok": False,
+                "error": "API returned invalid response",
+                "_http_status": response.status_code,
+            }
+
+        data["_http_status"] = (
+            response.status_code
+        )
+
+        return data
+
+    except httpx.TimeoutException:
+
+        logger.error(
+            "AVO SIM API TIMEOUT | action=%s",
+            action
+        )
+
+        return {
+            "ok": False,
+            "error": "API timeout",
+            "_http_status": 0,
+        }
+
+    except httpx.HTTPError as e:
+
+        logger.error(
+            "AVO SIM API HTTP ERROR | action=%s | error=%s",
+            action,
+            e,
+        )
+
+        return {
+            "ok": False,
+            "error": str(e),
+            "_http_status": 0,
+        }
+
+    except Exception as e:
+
+        logger.exception(
+            "AVO SIM API ERROR | action=%s | error=%s",
+            action,
+        )
+
+        return {
+            "ok": False,
+            "error": str(e),
+            "_http_status": 0,
+        }
+
+
+def sim_error_text(result):
+
+    if not isinstance(result, dict):
+        return "Неизвестная ошибка API."
+
+    error = (
+        result.get("error")
+        or result.get("message")
+        or result.get("code")
+        or "Неизвестная ошибка API."
+    )
+
+    error_map = {
+
+        "BAD_KEY":
+            "Неверный API ключ AVO Sim.",
+
+        "USER_BANNED":
+            "API аккаунт заблокирован.",
+
+        "API_DISABLED":
+            "Public API временно отключён.",
+
+        "RATE_LIMITED":
+            "Превышен лимит запросов API. Попробуйте позже.",
+
+        "insufficient_balance":
+            "На балансе AVO Sim недостаточно средств.",
+
+        "country_not_found":
+            "Выбранная страна сейчас недоступна.",
+
+        "BAD_PARAMS":
+            "API получил неправильные параметры.",
+
+        "provider_error":
+            "Провайдер номеров временно не отвечает. Попробуйте позже.",
+
+        "order_not_found":
+            "Заказ номера не найден.",
+
+        "unknown_action":
+            "API получил неизвестную команду.",
+    }
+
+    return error_map.get(
+        str(error),
+        str(error)
+    )
+
+
+async def get_sim_servers():
+
+    result = await sim_api_request(
+        "getServers"
+    )
+
+    if result.get("ok") is not True:
+
+        return (
+            False,
+            sim_error_text(result)
+        )
+
+    servers = sim_extract_list(
+        result,
+        [
+            "servers"
+        ]
+    )
+
+    prepared = []
+
+    for item in servers:
+
+        if isinstance(
+            item,
+            dict
+        ):
+
+            server_value = sim_extract_value(
+                item,
+                [
+                    "server",
+                    "id",
+                    "server_id",
+                    "number",
+                ]
+            )
+
+        else:
+
+            server_value = item
+
+        try:
+
+            server_id = int(
+                server_value
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            continue
+
+        prepared.append(
+            server_id
+        )
+
+    # Если API вернул серверы в неожиданном формате,
+    # документация указывает стандартный сервер 1.
+    if not prepared:
+        prepared = [1]
+
+    return (
+        True,
+        sorted(set(prepared))
+    )
 
 
 async def get_number_countries():
-    result = await partner_api_request("/numbers/countries", method="GET")
-    if result.get("ok") is not True:
-        return False, result.get("message") or result.get("code") or "Не удалось получить список стран."
-    countries = result.get("result") or []
-    if not isinstance(countries, list):
-        return False, "API вернул некорректный список стран."
 
-    prepared = []
-    for item in countries:
-        if not isinstance(item, dict):
+    ok, servers = await get_sim_servers()
+
+    if not ok:
+
+        return (
+            False,
+            servers
+        )
+
+    all_countries = {}
+
+    for server_id in servers:
+
+        result = await sim_api_request(
+            "getCountries",
+            {
+                "server": server_id
+            }
+        )
+
+        if result.get("ok") is not True:
+
+            logger.warning(
+                "AVO SIM getCountries FAILED | server=%s | error=%s",
+                server_id,
+                sim_error_text(result)
+            )
+
             continue
-        code = str(item.get("code") or "").upper()
-        name = str(item.get("name") or code).strip()
-        try:
-            api_price = int(item.get("price_uzs"))
-        except (TypeError, ValueError):
-            continue
-        if len(code) != 2 or api_price <= 0:
-            continue
 
-        prepared.append({
-            "code": code,
-            "name": name,
-            "api_price": api_price,
-            "price": number_sell_price(api_price),
-        })
+        countries = sim_extract_list(
+            result,
+            [
+                "countries"
+            ]
+        )
 
-    prepared.sort(key=lambda x: (x["price"], x["name"]))
-    return True, prepared
+        for item in countries:
+
+            if not isinstance(
+                item,
+                dict
+            ):
+                continue
+
+            code = str(
+                sim_extract_value(
+                    item,
+                    [
+                        "country_code",
+                        "code",
+                        "iso",
+                        "country"
+                    ],
+                    ""
+                )
+            ).upper().strip()
+
+            name = str(
+                sim_extract_value(
+                    item,
+                    [
+                        "name",
+                        "country_name",
+                        "title"
+                    ],
+                    code
+                )
+            ).strip()
+
+            price_raw = sim_extract_value(
+                item,
+                [
+                    "price_uzs",
+                    "price",
+                    "cost_uzs",
+                    "cost"
+                ]
+            )
+
+            try:
+
+                api_price = int(
+                    float(price_raw)
+                )
+
+            except (
+                TypeError,
+                ValueError
+            ):
+
+                continue
+
+            if (
+                len(code) != 2
+                or api_price <= 0
+            ):
+                continue
+
+            prepared = {
+                "code": code,
+                "name": name,
+                "api_price": api_price,
+                "price": number_sell_price(
+                    api_price
+                ),
+                "server": server_id,
+            }
+
+            # Если одна страна есть на нескольких серверах,
+            # оставляем вариант с меньшей ценой.
+            old = all_countries.get(code)
+
+            if (
+                old is None
+                or prepared["price"] < old["price"]
+            ):
+
+                all_countries[code] = prepared
+
+    countries = list(
+        all_countries.values()
+    )
+
+    countries.sort(
+        key=lambda x: (
+            x["price"],
+            x["name"]
+        )
+    )
+
+    return (
+        True,
+        countries
+    )
 
 
-async def show_number_countries(query, user_id):
+async def buy_sim_number(
+    server,
+    country_code
+):
+
+    result = await sim_api_request(
+        "buyNumber",
+        {
+            "server": int(server),
+            "country_code": country_code.upper(),
+        }
+    )
+
+    return result
+
+
+async def get_sim_code(order_id):
+
+    return await sim_api_request(
+        "getCode",
+        {
+            "order_id": int(order_id),
+        }
+    )
+
+
+async def show_number_countries(
+    query,
+    user_id
+):
+
     ok, countries = await get_number_countries()
 
     if not ok:
+
         await query.message.edit_text(
+
             f"❌ {escape(str(countries))}",
+
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")]
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Назад",
+                        callback_data="main_shop"
+                    )
+                ]
             ]),
+
             parse_mode="HTML",
         )
+
         return
 
     if not countries:
+
         await query.message.edit_text(
+
             "❌ Сейчас доступных стран для номеров нет.",
+
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")]
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Назад",
+                        callback_data="main_shop"
+                    )
+                ]
             ]),
         )
+
         return
 
     keyboard = []
+
     for item in countries:
+
         label = (
-            f'{country_flag(item["code"])} {item["name"]} — '
+            f'{country_flag(item["code"])} '
+            f'{item["name"]} — '
             f'{item["price"]:,} сум'
         )
+
         keyboard.append([
             InlineKeyboardButton(
                 label,
-                callback_data=f'numbers_country_{item["code"]}',
+                callback_data=(
+                    f'numbers_country_'
+                    f'{item["code"]}'
+                ),
             )
         ])
 
     keyboard.append([
         InlineKeyboardButton(
-            tr(user_id, "back"),
-            callback_data="main_shop",
+            tr(
+                user_id,
+                "back"
+            ),
+            callback_data="main_shop"
         )
     ])
 
     await query.message.edit_text(
+
         "📱 <b>Telegram номера</b>\n\n"
         "Выберите страну:\n"
         "💰 Цены отсортированы от низкой к высокой.\n"
-        f"📈 Наценка магазина: {NUMBER_MARKUP_PERCENT}%",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        f"📈 Наценка магазина: "
+        f"{NUMBER_MARKUP_PERCENT}%",
+
+        reply_markup=InlineKeyboardMarkup(
+            keyboard
+        ),
+
         parse_mode="HTML",
     )
 
 
-async def number_callback(update, context):
+async def number_callback(
+    update,
+    context
+):
+
     query = update.callback_query
+
     await query.answer()
+
     user = query.from_user
 
     if await check_ban(update):
@@ -1386,43 +2349,88 @@ async def number_callback(update, context):
     data = query.data
 
     if data == "shop_numbers":
-        await show_number_countries(query, user.id)
+
+        await show_number_countries(
+            query,
+            user.id
+        )
+
         return
 
     if data == "numbers_back":
-        await show_number_countries(query, user.id)
-        return
 
-    if data.startswith("numbers_country_"):
-        country_code = data.rsplit("_", 1)[-1].upper()
-
-        await query.message.edit_text(
-            "🔄 Получаем номер...\n\nПожалуйста, подождите.",
+        await show_number_countries(
+            query,
+            user.id
         )
 
-        ok, countries = await get_number_countries()
+        return
+
+    if data.startswith(
+        "numbers_country_"
+    ):
+
+        country_code = (
+            data
+            .rsplit("_", 1)[-1]
+            .upper()
+        )
+
+        await query.message.edit_text(
+            "🔄 Получаем номер...\n\n"
+            "Пожалуйста, подождите."
+        )
+
+        ok, countries = (
+            await get_number_countries()
+        )
+
         if not ok:
+
             await query.message.edit_text(
+
                 f"❌ {escape(str(countries))}",
+
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="shop_numbers")]
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ К странам",
+                            callback_data="shop_numbers"
+                        )
+                    ]
                 ]),
+
                 parse_mode="HTML",
             )
+
             return
 
         country = next(
-            (item for item in countries if item["code"] == country_code),
+            (
+                item
+                for item in countries
+                if item["code"] == country_code
+            ),
             None,
         )
 
         if not country:
+
             await query.message.edit_text(
-                "❌ Эта страна сейчас недоступна. Список обновлён.",
+
+                "❌ Эта страна сейчас недоступна. "
+                "Список обновлён.",
+
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ К списку стран", callback_data="shop_numbers")]
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ К списку стран",
+                            callback_data="shop_numbers"
+                        )
+                    ]
                 ]),
             )
+
             return
 
         user_data = get_user(
@@ -1431,243 +2439,635 @@ async def number_callback(update, context):
             user.first_name,
         )
 
-        if user_data["balance"] < country["price"]:
+        if (
+            user_data["balance"]
+            < country["price"]
+        ):
+
             await query.message.edit_text(
+
                 tr(
                     user.id,
                     "not_enough",
                     price=country["price"],
                     balance=user_data["balance"],
                 ),
+
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Пополнить баланс", callback_data="main_refill")],
-                    [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")],
+                    [
+                        InlineKeyboardButton(
+                            "💳 Пополнить баланс",
+                            callback_data="main_refill"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ К странам",
+                            callback_data="shop_numbers"
+                        )
+                    ],
                 ]),
+
                 parse_mode="HTML",
             )
+
             return
 
-        idem_key = f"number-{user.id}-{country_code}-{uuid.uuid4().hex}"
+        # =================================================
+        # НОВЫЙ AVO SIM API
+        # =================================================
 
-        result = await partner_api_request(
-            "/numbers/buy",
-            method="POST",
-            payload={"country_code": country_code},
-            idempotency_key=idem_key,
+        result = await buy_sim_number(
+            country["server"],
+            country_code
         )
 
         if result.get("ok") is not True:
-            api_error = (
-                result.get("message")
-                or result.get("code")
-                or "Не удалось купить номер."
+
+            api_error = sim_error_text(
+                result
             )
+
             await query.message.edit_text(
-                f"❌ Не удалось получить номер.\n\n{escape(str(api_error))}",
+
+                "❌ <b>Не удалось получить номер.</b>\n\n"
+                f"{escape(str(api_error))}",
+
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔄 Попробовать снова", callback_data="shop_numbers")],
-                    [InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")],
+                    [
+                        InlineKeyboardButton(
+                            "🔄 Попробовать снова",
+                            callback_data="shop_numbers"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Назад",
+                            callback_data="main_shop"
+                        )
+                    ],
                 ]),
+
                 parse_mode="HTML",
             )
+
             return
 
-        order = result.get("result") or {}
-        order_id = str(order.get("order_id") or "")
-        phone = str(order.get("phone") or "")
-        actual_api_cost = int(order.get("cost_uzs") or country["api_price"])
-        actual_price = number_sell_price(actual_api_cost)
+        order = result.get(
+            "result"
+        ) or {}
+
+        if not isinstance(
+            order,
+            dict
+        ):
+            order = {}
+
+        order_id_raw = sim_extract_value(
+            order,
+            [
+                "order_id",
+                "id"
+            ]
+        )
+
+        phone = str(
+            sim_extract_value(
+                order,
+                [
+                    "phone",
+                    "number"
+                ],
+                ""
+            )
+            or ""
+        ).strip()
+
+        try:
+
+            order_id = str(
+                int(order_id_raw)
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            order_id = str(
+                order_id_raw
+                or ""
+            ).strip()
+
+        actual_api_cost_raw = (
+            sim_extract_value(
+                order,
+                [
+                    "price_uzs",
+                    "price",
+                    "cost_uzs",
+                    "cost"
+                ],
+                country["api_price"]
+            )
+        )
+
+        try:
+
+            actual_api_cost = int(
+                float(actual_api_cost_raw)
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            actual_api_cost = (
+                country["api_price"]
+            )
+
+        actual_price = number_sell_price(
+            actual_api_cost
+        )
 
         if not order_id or not phone:
+
             await query.message.edit_text(
-                "❌ API купил номер, но не вернул номер или order_id. "
+
+                "❌ API купил номер, но не вернул "
+                "номер или order_id.\n\n"
                 "Обратитесь к администратору.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")]
-                ]),
-            )
-            return
 
-        # Если цена API изменилась между списком и покупкой,
-        # используем фактическую цену из ответа API.
-        if user_data["balance"] < actual_price:
-            await query.message.edit_text(
-                "❌ Цена номера изменилась, и на балансе недостаточно средств.\n\n"
-                f"💰 Нужно: {actual_price:,} сум\n"
-                f"💳 Баланс: {user_data['balance']:,} сум\n\n"
-                "Номер уже был получен от API. Обратитесь к администратору.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("💳 Пополнить баланс", callback_data="main_refill")]
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ К странам",
+                            callback_data="shop_numbers"
+                        )
+                    ]
                 ]),
             )
+
             logger.error(
-                "NUMBER PRICE MISMATCH | user=%s | order=%s | price=%s | balance=%s",
-                user.id, order_id, actual_price, user_data["balance"],
+                "AVO SIM INVALID BUY RESPONSE | %s",
+                result
             )
+
             return
 
-        change_balance(user.id, -actual_price)
+        # =================================================
+        # ПРОВЕРКА БАЛАНСА ПЕРЕД СПИСАНИЕМ
+        # =================================================
 
-        conn = sqlite3.connect(DB_FILE, timeout=20)
+        if (
+            user_data["balance"]
+            < actual_price
+        ):
+
+            await query.message.edit_text(
+
+                "❌ Цена номера изменилась, "
+                "и на балансе недостаточно средств.\n\n"
+                f"💰 Нужно: {actual_price:,} сум\n"
+                f"💳 Баланс: "
+                f"{user_data['balance']:,} сум\n\n"
+                "Номер уже был выдан API. "
+                "Обратитесь к администратору.",
+
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(
+                            "💳 Пополнить баланс",
+                            callback_data="main_refill"
+                        )
+                    ]
+                ]),
+            )
+
+            logger.error(
+                "AVO SIM PRICE MISMATCH | "
+                "user=%s | order=%s | price=%s | balance=%s",
+                user.id,
+                order_id,
+                actual_price,
+                user_data["balance"],
+            )
+
+            return
+
+        # =================================================
+        # СПИСЫВАЕМ БАЛАНС
+        # =================================================
+
+        change_balance(
+            user.id,
+            -actual_price
+        )
+
+        country_name = str(
+            sim_extract_value(
+                order,
+                [
+                    "country_name",
+                    "name",
+                    "country"
+                ],
+                country["name"]
+            )
+            or country["name"]
+        )
+
+        # =================================================
+        # СОХРАНЯЕМ ЗАКАЗ
+        # =================================================
+
+        conn = sqlite3.connect(
+            DB_FILE,
+            timeout=20
+        )
+
         try:
+
             conn.execute(
                 """
                 INSERT OR REPLACE INTO number_orders
-                (order_id, user_id, country_code, country_name, phone,
-                 price_uzs, status, created_at)
+                (order_id,
+                 user_id,
+                 country_code,
+                 country_name,
+                 phone,
+                 price_uzs,
+                 status,
+                 created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
                 """,
                 (
                     order_id,
                     user.id,
                     country_code,
-                    str(order.get("country_name") or country["name"]),
+                    country_name,
                     phone,
                     actual_price,
-                    datetime.now().isoformat(timespec="seconds"),
+                    datetime.now().isoformat(
+                        timespec="seconds"
+                    ),
                 ),
             )
+
             conn.commit()
+
         finally:
+
             conn.close()
 
-        country_name = str(order.get("country_name") or country["name"])
+        # =================================================
+        # УВЕДОМЛЕНИЕ АДМИНУ
+        # =================================================
 
         await context.bot.send_message(
+
             ADMIN_ID,
+
             (
                 "📱 НОВЫЙ ЗАКАЗ НОМЕРА\n\n"
-                f"🌍 Страна: {country_flag(country_code)} {escape(country_name)}\n"
-                f"📞 Номер: `{escape(phone)}`\n"
-                f"💰 Цена: {actual_price:,} сум\n"
-                f"🧾 Order ID: `{escape(order_id)}`\n"
-                f"🆔 ID клиента: `{user.id}`\n"
-                f"👤 Клиент: @{escape(user.username or 'нет username')}"
+                f"🌍 Страна: "
+                f"{country_flag(country_code)} "
+                f"{escape(country_name)}\n"
+                f"📞 Номер: "
+                f"<code>{escape(phone)}</code>\n"
+                f"💰 Цена: "
+                f"{actual_price:,} сум\n"
+                f"📈 Наценка: "
+                f"{NUMBER_MARKUP_PERCENT}%\n"
+                f"🧾 Order ID: "
+                f"<code>{escape(order_id)}</code>\n"
+                f"🖥 Server: "
+                f"<code>{country['server']}</code>\n"
+                f"🆔 ID клиента: "
+                f"<code>{user.id}</code>\n"
+                f"👤 Клиент: "
+                f"@{escape(user.username or 'нет username')}"
             ),
+
             parse_mode="HTML",
         )
 
+        # =================================================
+        # ПОКАЗЫВАЕМ НОМЕР ПОЛЬЗОВАТЕЛЮ
+        # =================================================
+
         await query.message.edit_text(
+
             "✅ <b>Номер успешно получен!</b>\n\n"
-            f"🌍 Страна: {country_flag(country_code)} {escape(country_name)}\n"
-            f"📞 Номер: <code>{escape(phone)}</code>\n"
-            f"💰 Цена: {actual_price:,} сум\n\n"
-            "Нажмите кнопку ниже, когда нужно получить SMS-код.",
+            f"🌍 Страна: "
+            f"{country_flag(country_code)} "
+            f"{escape(country_name)}\n"
+            f"📞 Номер: "
+            f"<code>{escape(phone)}</code>\n"
+            f"💰 Цена: "
+            f"{actual_price:,} сум\n\n"
+            "Нажмите кнопку ниже, "
+            "когда нужно получить SMS-код.",
+
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
                         "📩 Получить СМС-код",
-                        callback_data=f"numbers_sms_{order_id}",
+                        callback_data=(
+                            f"numbers_sms_{order_id}"
+                        ),
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         "⬅️ К странам",
-                        callback_data="shop_numbers",
+                        callback_data="shop_numbers"
                     )
                 ],
             ]),
+
             parse_mode="HTML",
         )
+
         return
 
-    if data.startswith("numbers_sms_"):
-        order_id = data[len("numbers_sms_"):].strip()
+    # =====================================================
+    # ПОЛУЧЕНИЕ SMS
+    # =====================================================
 
-        conn = sqlite3.connect(DB_FILE, timeout=20)
+    if data.startswith(
+        "numbers_sms_"
+    ):
+
+        order_id = (
+            data[
+                len("numbers_sms_"):
+            ]
+            .strip()
+        )
+
+        conn = sqlite3.connect(
+            DB_FILE,
+            timeout=20
+        )
+
         conn.row_factory = sqlite3.Row
+
         row = conn.execute(
             """
-            SELECT order_id, user_id, country_code, country_name, phone, price_uzs
+            SELECT order_id,
+                   user_id,
+                   country_code,
+                   country_name,
+                   phone,
+                   price_uzs
             FROM number_orders
-            WHERE order_id = ? AND user_id = ?
+            WHERE order_id = ?
+              AND user_id = ?
             """,
-            (order_id, user.id),
+            (
+                order_id,
+                user.id
+            ),
         ).fetchone()
+
         conn.close()
 
         if not row:
+
             await query.message.edit_text(
+
                 "❌ Заказ номера не найден.",
+
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")]
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ К странам",
+                            callback_data="shop_numbers"
+                        )
+                    ]
                 ]),
             )
+
             return
 
         await query.message.edit_text(
+
             "⏳ <b>Проверяю SMS...</b>\n\n"
-            f"📞 Номер: <code>{escape(row['phone'])}</code>\n\n"
+            f"📞 Номер: "
+            f"<code>{escape(row['phone'])}</code>\n\n"
             "Ожидайте, бот проверяет получение кода.",
+
             parse_mode="HTML",
         )
 
-        # API рекомендует проверять код каждые 3–5 секунд.
-        for attempt in range(12):
-            result = await partner_api_request(
-                f"/numbers/code/{order_id}",
-                method="GET",
+        # AVO Sim рекомендует polling каждые 5–10 секунд.
+        # Здесь используем 8 секунд.
+        for attempt in range(30):
+
+            result = await get_sim_code(
+                order_id
             )
 
             if result.get("ok") is True:
-                sms = result.get("result") or {}
-                status = str(sms.get("status") or "").lower()
 
-                if status == "finished" and sms.get("code"):
-                    code = str(sms["code"])
-                    password = str(sms.get("password") or "")
-
-                    conn = sqlite3.connect(DB_FILE, timeout=20)
-                    conn.execute(
-                        "UPDATE number_orders SET status = 'finished' WHERE order_id = ?",
-                        (order_id,),
+                status = str(
+                    result.get(
+                        "status",
+                        ""
                     )
+                ).lower()
+
+                sms = result.get(
+                    "result"
+                ) or {}
+
+                if not isinstance(
+                    sms,
+                    dict
+                ):
+                    sms = {}
+
+                # Некоторые API могут вернуть status
+                # внутри result.
+                if not status:
+
+                    status = str(
+                        sms.get(
+                            "status",
+                            ""
+                        )
+                    ).lower()
+
+                if (
+                    status == "finished"
+                    and sms.get("code")
+                ):
+
+                    code = str(
+                        sms["code"]
+                    )
+
+                    conn = sqlite3.connect(
+                        DB_FILE,
+                        timeout=20
+                    )
+
+                    conn.execute(
+                        """
+                        UPDATE number_orders
+                        SET status = 'finished'
+                        WHERE order_id = ?
+                        """,
+                        (
+                            order_id,
+                        ),
+                    )
+
                     conn.commit()
                     conn.close()
 
-                    extra = f"\n🔐 Пароль: <code>{escape(password)}</code>" if password else ""
-
                     await query.message.edit_text(
+
                         "✅ <b>SMS-код получен!</b>\n\n"
-                        f"🌍 {country_flag(row['country_code'])} {escape(row['country_name'])}\n"
-                        f"📞 Номер: <code>{escape(row['phone'])}</code>\n"
-                        f"📩 Код: <code>{escape(code)}</code>"
-                        f"{extra}\n\n"
-                        f"🧾 Order ID: <code>{escape(order_id)}</code>",
+                        f"🌍 "
+                        f"{country_flag(row['country_code'])} "
+                        f"{escape(row['country_name'])}\n"
+                        f"📞 Номер: "
+                        f"<code>{escape(row['phone'])}</code>\n"
+                        f"📩 Код: "
+                        f"<code>{escape(code)}</code>\n\n"
+                        f"🧾 Order ID: "
+                        f"<code>{escape(order_id)}</code>",
+
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")]
+                            [
+                                InlineKeyboardButton(
+                                    "⬅️ К странам",
+                                    callback_data="shop_numbers"
+                                )
+                            ]
                         ]),
+
                         parse_mode="HTML",
                     )
+
                     return
 
-                if status not in {"waiting", ""}:
+                if status not in {
+                    "",
+                    "waiting"
+                }:
+
                     message = str(
-                        sms.get("message")
-                        or f"Статус заказа: {status}"
+                        sms.get(
+                            "message"
+                        )
+                        or result.get(
+                            "message"
+                        )
+                        or (
+                            f"Статус заказа: "
+                            f"{status}"
+                        )
                     )
+
                     await query.message.edit_text(
+
                         f"❌ {escape(message)}",
+
                         reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("🔄 Проверить ещё раз", callback_data=f"numbers_sms_{order_id}")],
-                            [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")],
+                            [
+                                InlineKeyboardButton(
+                                    "🔄 Проверить ещё раз",
+                                    callback_data=(
+                                        f"numbers_sms_{order_id}"
+                                    ),
+                                )
+                            ],
+                            [
+                                InlineKeyboardButton(
+                                    "⬅️ К странам",
+                                    callback_data=(
+                                        "shop_numbers"
+                                    ),
+                                )
+                            ],
                         ]),
+
                         parse_mode="HTML",
                     )
+
                     return
 
-            # Не превышаем лимит API и ждём следующий polling.
-            if attempt < 11:
-                await asyncio.sleep(5)
+            else:
+
+                error = sim_error_text(
+                    result
+                )
+
+                # Ошибка order_not_found
+                # больше не имеет смысла продолжать polling.
+                if str(
+                    result.get(
+                        "error",
+                        ""
+                    )
+                ) == "order_not_found":
+
+                    await query.message.edit_text(
+
+                        f"❌ {escape(error)}",
+
+                        reply_markup=InlineKeyboardMarkup([
+                            [
+                                InlineKeyboardButton(
+                                    "⬅️ К странам",
+                                    callback_data=(
+                                        "shop_numbers"
+                                    ),
+                                )
+                            ]
+                        ]),
+
+                        parse_mode="HTML",
+                    )
+
+                    return
+
+            if attempt < 29:
+
+                await asyncio.sleep(
+                    8
+                )
 
         await query.message.edit_text(
-            "⏳ SMS пока не пришло.\n\n"
-            "Нажмите «Проверить ещё раз», когда код придёт.",
+
+            "⏳ <b>SMS пока не пришло.</b>\n\n"
+            "Нажмите «Проверить ещё раз», "
+            "когда код придёт.",
+
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Проверить ещё раз", callback_data=f"numbers_sms_{order_id}")],
-                [InlineKeyboardButton("⬅️ К странам", callback_data="shop_numbers")],
+                [
+                    InlineKeyboardButton(
+                        "🔄 Проверить ещё раз",
+                        callback_data=(
+                            f"numbers_sms_{order_id}"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ К странам",
+                        callback_data="shop_numbers"
+                    )
+                ],
             ]),
+
+            parse_mode="HTML",
         )
+
         return
 
 
@@ -1675,30 +3075,42 @@ async def number_callback(update, context):
 # ЯЗЫК
 # =========================================================
 
-async def language_callback(update, context):
+async def language_callback(
+    update,
+    context
+):
 
     query = update.callback_query
+
     await query.answer()
 
     user_id = query.from_user.id
 
     set_language(
         user_id,
-        "ru" if query.data == "lang_ru" else "uz",
+        "ru"
+        if query.data == "lang_ru"
+        else "uz",
     )
 
-    data = get_user(user_id)
+    data = get_user(
+        user_id
+    )
 
     await query.message.edit_text(
 
         tr(
             user_id,
             "welcome",
-            name=escape(query.from_user.first_name),
+            name=escape(
+                query.from_user.first_name
+            ),
             balance=data["balance"],
         ),
 
-        reply_markup=main_keyboard(user_id),
+        reply_markup=main_keyboard(
+            user_id
+        ),
 
         parse_mode="HTML",
 
@@ -1706,82 +3118,291 @@ async def language_callback(update, context):
 
 
 # =========================================================
-# TELEGRAM STARS & PREMIUM PARTNER API v2
+# PARTNER API — STARS / PREMIUM
 # =========================================================
 
-async def partner_api_request(endpoint, method="GET", payload=None, idempotency_key=None):
-    api_key = (PARTNER_API_KEY or "").strip().strip('"').strip("'")
-    url = f"{PARTNER_API_URL}{endpoint}"
+async def partner_api_request(
+    endpoint,
+    method="GET",
+    payload=None,
+    idempotency_key=None
+):
+
+    api_key = (
+        PARTNER_API_KEY
+        or ""
+    ).strip().strip('"').strip("'")
+
+    url = (
+        f"{PARTNER_API_URL}{endpoint}"
+    )
+
     headers = {
         "X-API-Key": api_key,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+
     if idempotency_key:
-        headers["X-Idempotency-Key"] = idempotency_key
+
+        headers[
+            "X-Idempotency-Key"
+        ] = idempotency_key
 
     try:
-        async with httpx.AsyncClient(timeout=PARTNER_API_TIMEOUT, follow_redirects=True) as client:
+
+        async with httpx.AsyncClient(
+            timeout=PARTNER_API_TIMEOUT,
+            follow_redirects=True
+        ) as client:
+
             if method.upper() == "POST":
-                response = await client.post(url, headers=headers, json=payload or {})
+
+                response = await client.post(
+                    url,
+                    headers=headers,
+                    json=payload or {}
+                )
+
             else:
-                response = await client.get(url, headers=headers)
+
+                response = await client.get(
+                    url,
+                    headers=headers
+                )
 
         logger.info(
-            "PARTNER API v2 RESPONSE | endpoint=%s | HTTP=%s | BODY=%s",
-            endpoint, response.status_code, response.text[:2000],
+            "PARTNER API v2 RESPONSE | "
+            "endpoint=%s | HTTP=%s | BODY=%s",
+            endpoint,
+            response.status_code,
+            response.text[:2000],
         )
+
         try:
+
             data = response.json()
+
         except Exception:
-            return {"ok": False, "message": "API returned invalid JSON", "_http_status": response.status_code}
-        if not isinstance(data, dict):
-            return {"ok": False, "message": "API returned invalid response", "_http_status": response.status_code}
-        data["_http_status"] = response.status_code
+
+            return {
+                "ok": False,
+                "message": "API returned invalid JSON",
+                "_http_status": response.status_code
+            }
+
+        if not isinstance(
+            data,
+            dict
+        ):
+
+            return {
+                "ok": False,
+                "message": "API returned invalid response",
+                "_http_status": response.status_code
+            }
+
+        data[
+            "_http_status"
+        ] = response.status_code
+
         return data
+
     except httpx.TimeoutException:
-        logger.error("PARTNER API TIMEOUT | endpoint=%s", endpoint)
-        return {"ok": False, "message": "API timeout", "_http_status": 0}
+
+        logger.error(
+            "PARTNER API TIMEOUT | endpoint=%s",
+            endpoint
+        )
+
+        return {
+            "ok": False,
+            "message": "API timeout",
+            "_http_status": 0
+        }
+
     except httpx.HTTPError as e:
-        logger.error("PARTNER API HTTP ERROR | endpoint=%s | error=%s", endpoint, e)
-        return {"ok": False, "message": str(e), "_http_status": 0}
+
+        logger.error(
+            "PARTNER API HTTP ERROR | "
+            "endpoint=%s | error=%s",
+            endpoint,
+            e
+        )
+
+        return {
+            "ok": False,
+            "message": str(e),
+            "_http_status": 0
+        }
+
     except Exception as e:
-        logger.exception("PARTNER API ERROR | endpoint=%s | error=%s", endpoint, e)
-        return {"ok": False, "message": str(e), "_http_status": 0}
+
+        logger.exception(
+            "PARTNER API ERROR | "
+            "endpoint=%s | error=%s",
+            endpoint,
+            e
+        )
+
+        return {
+            "ok": False,
+            "message": str(e),
+            "_http_status": 0
+        }
 
 
-async def check_telegram_user(username: str):
-    res = await partner_api_request("/getInfo", method="POST", payload={"username": username})
-    if res.get("_http_status") == 404:
-        return False, "User not found"
-    if res.get("ok") is True:
-        return True, res.get("result")
-    return False, res.get("message", "Unknown error")
+async def check_telegram_user(
+    username: str
+):
+
+    res = await partner_api_request(
+        "/getInfo",
+        method="POST",
+        payload={
+            "username": username
+        }
+    )
+
+    if res.get(
+        "_http_status"
+    ) == 404:
+
+        return (
+            False,
+            "User not found"
+        )
+
+    if res.get(
+        "ok"
+    ) is True:
+
+        return (
+            True,
+            res.get("result")
+        )
+
+    return (
+        False,
+        res.get(
+            "message",
+            "Unknown error"
+        )
+    )
 
 
-async def send_order_to_partner(product_type, value, target, telegram_user_id):
-    target = target.replace("@", "").strip()
-    idem_key = f"order-{product_type}-{telegram_user_id}-{int(datetime.now().timestamp())}"
+async def send_order_to_partner(
+    product_type,
+    value,
+    target,
+    telegram_user_id
+):
+
+    target = (
+        target
+        .replace("@", "")
+        .strip()
+    )
+
+    idem_key = (
+        f"order-{product_type}-"
+        f"{telegram_user_id}-"
+        f"{int(datetime.now().timestamp())}"
+    )
+
     if product_type == "stars":
-        endpoint = "/stars/buy"
-        payload = {"username": target, "amount": int(value)}
-    elif product_type == "premium":
-        endpoint = "/premium/buy"
-        months = int(value)
-        if months not in {3, 6, 12}:
-            logger.error("INVALID PREMIUM MONTHS: %s", months)
-            return False, None, "Недопустимый срок Premium."
-        payload = {"username": target, "duration": months}
-    else:
-        logger.error("UNKNOWN PRODUCT TYPE: %s", product_type)
-        return False, None, "Неизвестный тип товара."
 
-    result = await partner_api_request(endpoint, method="POST", payload=payload, idempotency_key=idem_key)
-    if result.get("ok") is True:
-        result_data = result.get("result") or {}
-        order_id = result_data.get("order_id") if isinstance(result_data, dict) else None
-        logger.info("PARTNER ORDER SUCCESS | type=%s | target=%s | value=%s | order_id=%s", product_type, target, value, order_id)
-        return True, order_id, None
+        endpoint = "/stars/buy"
+
+        payload = {
+            "username": target,
+            "amount": int(value)
+        }
+
+    elif product_type == "premium":
+
+        endpoint = "/premium/buy"
+
+        months = int(value)
+
+        if months not in {
+            3,
+            6,
+            12
+        }:
+
+            logger.error(
+                "INVALID PREMIUM MONTHS: %s",
+                months
+            )
+
+            return (
+                False,
+                None,
+                "Недопустимый срок Premium."
+            )
+
+        payload = {
+            "username": target,
+            "duration": months
+        }
+
+    else:
+
+        logger.error(
+            "UNKNOWN PRODUCT TYPE: %s",
+            product_type
+        )
+
+        return (
+            False,
+            None,
+            "Неизвестный тип товара."
+        )
+
+    result = await partner_api_request(
+        endpoint,
+        method="POST",
+        payload=payload,
+        idempotency_key=idem_key
+    )
+
+    if result.get(
+        "ok"
+    ) is True:
+
+        result_data = (
+            result.get(
+                "result"
+            )
+            or {}
+        )
+
+        order_id = (
+            result_data.get(
+                "order_id"
+            )
+            if isinstance(
+                result_data,
+                dict
+            )
+            else None
+        )
+
+        logger.info(
+            "PARTNER ORDER SUCCESS | "
+            "type=%s | target=%s | value=%s | order_id=%s",
+            product_type,
+            target,
+            value,
+            order_id
+        )
+
+        return (
+            True,
+            order_id,
+            None
+        )
 
     api_error = (
         result.get("message")
@@ -1791,27 +3412,45 @@ async def send_order_to_partner(product_type, value, target, telegram_user_id):
     )
 
     logger.error(
-        "PARTNER ORDER FAILED | type=%s | target=%s | value=%s | HTTP=%s | message=%s",
-        product_type, target, value, result.get("_http_status"), api_error,
+        "PARTNER ORDER FAILED | "
+        "type=%s | target=%s | value=%s | "
+        "HTTP=%s | message=%s",
+        product_type,
+        target,
+        value,
+        result.get("_http_status"),
+        api_error,
     )
-    return False, None, str(api_error)
+
+    return (
+        False,
+        None,
+        str(api_error)
+    )
 
 
 # =========================================================
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
 
-async def buy_start(update, context):
+async def buy_start(
+    update,
+    context
+):
 
     query = update.callback_query
+
     await query.answer()
+
     context.user_data.clear()
 
     data = query.data
 
     if data == "buy_stars":
 
-        context.user_data["product_type"] = "stars"
+        context.user_data[
+            "product_type"
+        ] = "stars"
 
         await query.message.edit_text(
             tr(
@@ -1822,26 +3461,48 @@ async def buy_start(update, context):
 
         return BUY_AMOUNT
 
-    if data.startswith("buy_stars_"):
+    if data.startswith(
+        "buy_stars_"
+    ):
 
-        amount = int(data.split("_")[2])
+        amount = int(
+            data.split("_")[2]
+        )
 
-        context.user_data["product_type"] = "stars"
-        context.user_data["amount"] = amount
+        context.user_data[
+            "product_type"
+        ] = "stars"
+
+        context.user_data[
+            "amount"
+        ] = amount
 
         await query.message.edit_text(
-            f"⭐ Вы выбрали {amount} Stars.\n\nВведите @username Telegram:"
+            f"⭐ Вы выбрали {amount} Stars.\n\n"
+            "Введите @username Telegram:"
         )
 
         return BUY_USERNAME
 
-    if data.startswith("buy_premium_"):
+    if data.startswith(
+        "buy_premium_"
+    ):
 
-        months = int(data.split("_")[2])
+        months = int(
+            data.split("_")[2]
+        )
 
-        context.user_data["product_type"] = "premium"
-        context.user_data["amount"] = months
-        context.user_data["months"] = months
+        context.user_data[
+            "product_type"
+        ] = "premium"
+
+        context.user_data[
+            "amount"
+        ] = months
+
+        context.user_data[
+            "months"
+        ] = months
 
         await query.message.edit_text(
             tr(
@@ -1855,9 +3516,15 @@ async def buy_start(update, context):
     return ConversationHandler.END
 
 
-async def buy_amount(update, context):
+async def buy_amount(
+    update,
+    context
+):
 
-    text = update.message.text.strip()
+    text = (
+        update.message.text
+        .strip()
+    )
 
     if not text.isdigit():
 
@@ -1869,7 +3536,10 @@ async def buy_amount(update, context):
 
     amount = int(text)
 
-    if amount < 50 or amount > 10000:
+    if (
+        amount < 50
+        or amount > 10000
+    ):
 
         await update.message.reply_text(
             "❌ Можно купить от 50 до 10000 Stars."
@@ -1877,7 +3547,9 @@ async def buy_amount(update, context):
 
         return BUY_AMOUNT
 
-    context.user_data["amount"] = amount
+    context.user_data[
+        "amount"
+    ] = amount
 
     await update.message.reply_text(
         tr(
@@ -1889,11 +3561,21 @@ async def buy_amount(update, context):
     return BUY_USERNAME
 
 
-async def buy_username(update, context):
+async def buy_username(
+    update,
+    context
+):
 
-    username = update.message.text.strip().replace("@", "")
+    username = (
+        update.message.text
+        .strip()
+        .replace("@", "")
+    )
 
-    if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+    if not re.fullmatch(
+        r"[A-Za-z0-9_]{5,32}",
+        username
+    ):
 
         await update.message.reply_text(
             "❌ Введите корректный юзернейм."
@@ -1902,15 +3584,36 @@ async def buy_username(update, context):
         return BUY_USERNAME
 
     user = update.effective_user
-    product_type = context.user_data.get("product_type")
-    amount = context.user_data.get("amount")
+
+    product_type = context.user_data.get(
+        "product_type"
+    )
+
+    amount = context.user_data.get(
+        "amount"
+    )
 
     if product_type == "stars":
-        price = amount * PRICE_PER_STAR
-        product = f"{amount} Stars"
+
+        price = (
+            amount
+            * PRICE_PER_STAR
+        )
+
+        product = (
+            f"{amount} Stars"
+        )
+
     else:
-        price = PREMIUM_PRICES.get(amount)
-        product = f"Telegram Premium на {amount} мес."
+
+        price = PREMIUM_PRICES.get(
+            amount
+        )
+
+        product = (
+            f"Telegram Premium "
+            f"на {amount} мес."
+        )
 
     data = get_user(
         user.id,
@@ -1921,6 +3624,7 @@ async def buy_username(update, context):
     if data["balance"] < price:
 
         await update.message.reply_text(
+
             tr(
                 user.id,
                 "not_enough",
@@ -1930,37 +3634,63 @@ async def buy_username(update, context):
         )
 
         context.user_data.clear()
+
         return ConversationHandler.END
 
-    context.user_data["username"] = username
-    context.user_data["price"] = price
-    context.user_data["product"] = product
+    context.user_data[
+        "username"
+    ] = username
+
+    context.user_data[
+        "price"
+    ] = price
+
+    context.user_data[
+        "product"
+    ] = product
 
     keyboard = [
         [
-            InlineKeyboardButton("✅ Купить", callback_data="confirm_buy"),
-            InlineKeyboardButton("❌ Отмена", callback_data="cancel_buy"),
+            InlineKeyboardButton(
+                "✅ Купить",
+                callback_data="confirm_buy"
+            ),
+            InlineKeyboardButton(
+                "❌ Отмена",
+                callback_data="cancel_buy"
+            ),
         ]
     ]
 
     await update.message.reply_text(
+
         tr(
             user.id,
             "confirm_order",
             product=product,
-            username=escape(username),
+            username=escape(
+                username
+            ),
             price=price,
         ),
-        reply_markup=InlineKeyboardMarkup(keyboard),
+
+        reply_markup=InlineKeyboardMarkup(
+            keyboard
+        ),
+
         parse_mode="HTML",
     )
 
     return BUY_CONFIRM
 
 
-async def buy_confirm(update, context):
+async def buy_confirm(
+    update,
+    context
+):
 
     query = update.callback_query
+
     await query.answer()
 
     user = query.from_user
@@ -1978,11 +3708,35 @@ async def buy_confirm(update, context):
 
         return ConversationHandler.END
 
-    product_type = context.user_data["product_type"]
-    amount = context.user_data["amount"]
-    username = context.user_data["username"]
-    price = context.user_data["price"]
-    product = context.user_data["product"]
+    product_type = (
+        context.user_data[
+            "product_type"
+        ]
+    )
+
+    amount = (
+        context.user_data[
+            "amount"
+        ]
+    )
+
+    username = (
+        context.user_data[
+            "username"
+        ]
+    )
+
+    price = (
+        context.user_data[
+            "price"
+        ]
+    )
+
+    product = (
+        context.user_data[
+            "product"
+        ]
+    )
 
     await query.message.edit_text(
         tr(
@@ -1992,57 +3746,98 @@ async def buy_confirm(update, context):
     )
 
     try:
-        success, order_id, api_error = await send_order_to_partner(
-            product_type,
-            amount,
-            username,
-            user.id,
+
+        success, order_id, api_error = (
+            await send_order_to_partner(
+                product_type,
+                amount,
+                username,
+                user.id,
+            )
         )
+
     except Exception as exc:
-        logger.exception("STARS/PREMIUM ORDER EXCEPTION")
+
+        logger.exception(
+            "STARS/PREMIUM ORDER EXCEPTION"
+        )
+
         await query.message.edit_text(
-            f"❌ Ошибка при оформлении заказа.\n\n`{escape(str(exc))}`",
+
+            f"❌ Ошибка при оформлении заказа.\n\n"
+            f"`{escape(str(exc))}`",
+
             parse_mode="HTML",
         )
+
         context.user_data.clear()
+
         return ConversationHandler.END
 
     if not success:
-        error_text = api_error or "Partner API не выполнил заказ."
+
+        error_text = (
+            api_error
+            or
+            "Partner API не выполнил заказ."
+        )
+
         await query.message.edit_text(
-            f"❌ Не удалось выполнить заказ.\n\n{escape(str(error_text))}",
+
+            f"❌ Не удалось выполнить заказ.\n\n"
+            f"{escape(str(error_text))}",
+
             parse_mode="HTML",
         )
+
         context.user_data.clear()
+
         return ConversationHandler.END
 
-    change_balance(user.id, -price)
+    change_balance(
+        user.id,
+        -price
+    )
 
     await context.bot.send_message(
+
         ADMIN_ID,
+
         (
             "🛒 НОВЫЙ ЗАКАЗ\n\n"
-            f"📦 Товар: {escape(product)}\n"
-            f"👤 Получатель: @{escape(username)}\n"
-            f"💰 Цена: {price:,} сум\n"
-            f"🧾 Order ID: `{escape(str(order_id or 'не указан'))}`\n"
-            f"🆔 ID заказчика: `{user.id}`\n"
-            f"👤 Заказал: @{escape(user.username or 'нет username')}"
+            f"📦 Товар: "
+            f"{escape(product)}\n"
+            f"👤 Получатель: "
+            f"@{escape(username)}\n"
+            f"💰 Цена: "
+            f"{price:,} сум\n"
+            f"🧾 Order ID: "
+            f"`{escape(str(order_id or 'не указан'))}`\n"
+            f"🆔 ID заказчика: "
+            f"`{user.id}`\n"
+            f"👤 Заказал: "
+            f"@{escape(user.username or 'нет username')}"
         ),
+
         parse_mode="HTML",
     )
 
     await query.message.edit_text(
+
         (
             "✅ Заказ успешно выполнен!\n\n"
             f"📦 {escape(product)}\n"
-            f"👤 Получатель: @{escape(username)}\n"
-            f"🧾 Order ID: `{escape(str(order_id or 'не указан'))}`"
+            f"👤 Получатель: "
+            f"@{escape(username)}\n"
+            f"🧾 Order ID: "
+            f"`{escape(str(order_id or 'не указан'))}`"
         ),
+
         parse_mode="HTML",
     )
 
     context.user_data.clear()
+
     return ConversationHandler.END
 
 
@@ -2050,27 +3845,67 @@ async def buy_confirm(update, context):
 # ПОПОЛНЕНИЕ
 # =========================================================
 
-async def refill_start(update, context):
+async def refill_start(
+    update,
+    context
+):
+
     query = update.callback_query
+
     await query.answer()
+
     context.user_data.clear()
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Автоматически через карту", callback_data="refill_card")],
-        [InlineKeyboardButton("👤 Через администратора", callback_data="refill_admin")],
-        [InlineKeyboardButton(tr(query.from_user.id, "back"), callback_data="back_main")]
+
+        [
+            InlineKeyboardButton(
+                "💳 Автоматически через карту",
+                callback_data="refill_card"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "👤 Через администратора",
+                callback_data="refill_admin"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                tr(
+                    query.from_user.id,
+                    "back"
+                ),
+                callback_data="back_main"
+            )
+        ]
+
     ])
 
     await query.message.edit_text(
-        tr(query.from_user.id, "refill_choose"),
+
+        tr(
+            query.from_user.id,
+            "refill_choose"
+        ),
+
         reply_markup=keyboard,
+
         parse_mode="HTML"
     )
 
 
-async def refill_card_start(update, context):
+async def refill_card_start(
+    update,
+    context
+):
+
     query = update.callback_query
+
     await query.answer()
+
     context.user_data.clear()
 
     await query.message.edit_text(
@@ -2083,68 +3918,121 @@ async def refill_card_start(update, context):
     return REFILL_AMOUNT
 
 
-async def refill_admin_contact(update, context):
+async def refill_admin_contact(
+    update,
+    context
+):
+
     query = update.callback_query
+
     await query.answer()
+
     context.user_data.clear()
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(tr(query.from_user.id, "back"), callback_data="main_refill")]
+        [
+            InlineKeyboardButton(
+                tr(
+                    query.from_user.id,
+                    "back"
+                ),
+                callback_data="main_refill"
+            )
+        ]
     ])
 
     await query.message.edit_text(
+
         tr(
             query.from_user.id,
             "refill_admin",
             admin_username=ADMIN_USERNAME
         ),
+
         reply_markup=keyboard,
+
         parse_mode="HTML"
     )
 
 
-async def refill_amount(update, context):
-    text = update.message.text.replace(" ", "").replace("_", "")
+async def refill_amount(
+    update,
+    context
+):
+
+    text = (
+        update.message.text
+        .replace(" ", "")
+        .replace("_", "")
+    )
 
     if not text.isdigit():
+
         await update.message.reply_text(
-            "❌ Введите корректную сумму цифрами. Например: 10000"
+            "❌ Введите корректную сумму цифрами. "
+            "Например: 10000"
         )
+
         return REFILL_AMOUNT
 
     amount = int(text)
 
     if amount < 1000:
+
         await update.message.reply_text(
             "❌ Минимальная сумма пополнения — 1 000 сум."
         )
+
         return REFILL_AMOUNT
 
     if amount > 9_999_900:
+
         await update.message.reply_text(
-            "❌ Максимальная сумма для этого способа — 9 999 900 сум."
+            "❌ Максимальная сумма для этого способа — "
+            "9 999 900 сум."
         )
+
         return REFILL_AMOUNT
 
     user = update.effective_user
 
     try:
-        payment_id, payment_amount = create_cardxabar_payment(
-            user.id,
-            amount,
+
+        payment_id, payment_amount = (
+            create_cardxabar_payment(
+                user.id,
+                amount,
+            )
         )
+
     except Exception as e:
-        logger.exception("CARDXABAR PAYMENT CREATE ERROR: %s", e)
-        await update.message.reply_text(
-            "❌ Не удалось создать платёж. Попробуйте ещё раз."
+
+        logger.exception(
+            "CARDXABAR PAYMENT CREATE ERROR: %s",
+            e
         )
+
+        await update.message.reply_text(
+            "❌ Не удалось создать платёж. "
+            "Попробуйте ещё раз."
+        )
+
         return REFILL_AMOUNT
 
-    context.user_data["cardxabar_payment_id"] = payment_id
-    context.user_data["refill_amount"] = amount
-    context.user_data["payment_amount"] = payment_amount
+    context.user_data[
+        "cardxabar_payment_id"
+    ] = payment_id
+
+    context.user_data[
+        "refill_amount"
+    ] = amount
+
+    context.user_data[
+        "payment_amount"
+    ] = payment_amount
 
     await update.message.reply_text(
+
         tr(
             user.id,
             "refill_payment",
@@ -2152,10 +4040,12 @@ async def refill_amount(update, context):
             payment_amount=payment_amount,
             card=CARD_NUMBER,
         ),
+
         parse_mode="HTML",
     )
 
     context.user_data.clear()
+
     return ConversationHandler.END
 
 
@@ -2163,22 +4053,35 @@ async def refill_amount(update, context):
 # ОТМЕНА
 # =========================================================
 
-async def cancel(update, context):
+async def cancel(
+    update,
+    context
+):
 
     context.user_data.clear()
-    user_id = update.effective_user.id
+
+    user_id = (
+        update.effective_user.id
+    )
 
     if update.callback_query:
+
         query = update.callback_query
+
         await query.answer()
+
         await query.message.edit_text(
+
             tr(
                 user_id,
                 "cancelled",
             )
         )
+
     else:
+
         await update.message.reply_text(
+
             tr(
                 user_id,
                 "cancelled",
@@ -2193,6 +4096,7 @@ async def cancel(update, context):
 # =========================================================
 
 def is_admin(user_id):
+
     return user_id == ADMIN_ID
 
 
@@ -2201,91 +4105,171 @@ def admin_keyboard():
     return InlineKeyboardMarkup([
 
         [
-            InlineKeyboardButton("➕ Добавить баланс", callback_data="admin_add"),
-            InlineKeyboardButton("➖ Убавить баланс", callback_data="admin_sub"),
+            InlineKeyboardButton(
+                "➕ Добавить баланс",
+                callback_data="admin_add"
+            ),
+
+            InlineKeyboardButton(
+                "➖ Убавить баланс",
+                callback_data="admin_sub"
+            ),
         ],
 
         [
-            InlineKeyboardButton("🔨 Забанить", callback_data="admin_ban"),
-            InlineKeyboardButton("🔓 Разбанить", callback_data="admin_unban"),
+            InlineKeyboardButton(
+                "🔨 Забанить",
+                callback_data="admin_ban"
+            ),
+
+            InlineKeyboardButton(
+                "🔓 Разбанить",
+                callback_data="admin_unban"
+            ),
         ],
 
         [
-            InlineKeyboardButton("💬 Отправить сообщение", callback_data="admin_message")
+            InlineKeyboardButton(
+                "💬 Отправить сообщение",
+                callback_data="admin_message"
+            )
         ],
 
         [
-            InlineKeyboardButton("📢 Рассылка всем", callback_data="admin_broadcast")
+            InlineKeyboardButton(
+                "📢 Рассылка всем",
+                callback_data="admin_broadcast"
+            )
         ],
 
         [
-            InlineKeyboardButton("🎟 Создать промокод", callback_data="admin_create_promo")
+            InlineKeyboardButton(
+                "🎟 Создать промокод",
+                callback_data="admin_create_promo"
+            )
         ],
 
         [
-            InlineKeyboardButton("👥 Пользователи", callback_data="admin_users")
+            InlineKeyboardButton(
+                "👥 Пользователи",
+                callback_data="admin_users"
+            )
         ],
 
         [
-            InlineKeyboardButton("💰 Балансы", callback_data="admin_balances")
+            InlineKeyboardButton(
+                "💰 Балансы",
+                callback_data="admin_balances"
+            )
         ],
 
         [
-            InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")
+            InlineKeyboardButton(
+                "📊 Статистика",
+                callback_data="admin_stats"
+            )
         ],
 
     ])
 
 
-async def admin(update, context):
+async def admin(
+    update,
+    context
+):
 
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("❌ Нет доступа.")
+    if not is_admin(
+        update.effective_user.id
+    ):
+
+        await update.message.reply_text(
+            "❌ Нет доступа."
+        )
+
         return
 
     await update.message.reply_text(
+
         "🛠 АДМИН-ПАНЕЛЬ",
+
         reply_markup=admin_keyboard(),
+
         parse_mode="HTML",
     )
 
 
-async def admin_callback(update, context):
+async def admin_callback(
+    update,
+    context
+):
 
     query = update.callback_query
+
     await query.answer()
 
-    if not is_admin(query.from_user.id):
+    if not is_admin(
+        query.from_user.id
+    ):
         return
 
     data = query.data
 
     if data == "admin_add":
-        await query.message.edit_text("➕ Введите ID пользователя:")
+
+        await query.message.edit_text(
+            "➕ Введите ID пользователя:"
+        )
+
         return ADMIN_ADD_ID
 
     if data == "admin_sub":
-        await query.message.edit_text("➖ Введите ID пользователя:")
+
+        await query.message.edit_text(
+            "➖ Введите ID пользователя:"
+        )
+
         return ADMIN_SUB_ID
 
     if data == "admin_ban":
-        await query.message.edit_text("🔨 Введите ID пользователя для бана:")
+
+        await query.message.edit_text(
+            "🔨 Введите ID пользователя для бана:"
+        )
+
         return ADMIN_BAN_ID
 
     if data == "admin_unban":
-        await query.message.edit_text("🔓 Введите ID пользователя для разбана:")
+
+        await query.message.edit_text(
+            "🔓 Введите ID пользователя для разбана:"
+        )
+
         return ADMIN_UNBAN_ID
 
     if data == "admin_message":
-        await query.message.edit_text("💬 Введите ID пользователя:")
+
+        await query.message.edit_text(
+            "💬 Введите ID пользователя:"
+        )
+
         return ADMIN_MESSAGE_ID
 
     if data == "admin_broadcast":
-        await query.message.edit_text("📢 Введите текст сообщения для рассылки всем пользователям:")
+
+        await query.message.edit_text(
+            "📢 Введите текст сообщения "
+            "для рассылки всем пользователям:"
+        )
+
         return ADMIN_BROADCAST_TEXT
 
     if data == "admin_create_promo":
-        await query.message.edit_text("🎟 Введите код нового промокода (например, SALE2026):")
+
+        await query.message.edit_text(
+            "🎟 Введите код нового промокода "
+            "(например, SALE2026):"
+        )
+
         return ADMIN_PROMO_CODE
 
     if data == "admin_users":
@@ -2293,14 +4277,30 @@ async def admin_callback(update, context):
         users = get_users()
 
         if not users:
-            await query.message.edit_text("👥 Пользователей пока нет.")
+
+            await query.message.edit_text(
+                "👥 Пользователей пока нет."
+            )
+
             return ConversationHandler.END
 
-        text = "👥 ПОЛЬЗОВАТЕЛИ\n\n"
+        text = (
+            "👥 ПОЛЬЗОВАТЕЛИ\n\n"
+        )
 
-        for index, row in enumerate(users[:50], 1):
+        for index, row in enumerate(
+            users[:50],
+            1
+        ):
 
-            user_id, username, name, balance, lang, banned = row
+            (
+                user_id,
+                username,
+                name,
+                balance,
+                lang,
+                banned
+            ) = row
 
             username_text = (
                 f"@{escape(username)}"
@@ -2315,7 +4315,8 @@ async def admin_callback(update, context):
             )
 
             text += (
-                f"{index}. {escape(name or 'Без имени')}\n"
+                f"{index}. "
+                f"{escape(name or 'Без имени')}\n"
                 f"👤 {username_text}\n"
                 f"🆔 `{user_id}`\n"
                 f"💰 {balance:,} сум\n"
@@ -2324,7 +4325,9 @@ async def admin_callback(update, context):
             )
 
         await query.message.edit_text(
+
             text,
+
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -2333,6 +4336,7 @@ async def admin_callback(update, context):
                     )
                 ]
             ]),
+
             parse_mode="HTML",
         )
 
@@ -2341,14 +4345,22 @@ async def admin_callback(update, context):
     if data == "admin_balances":
 
         users = get_users()
-        total = sum(row[3] for row in users)
+
+        total = sum(
+            row[3]
+            for row in users
+        )
 
         await query.message.edit_text(
+
             (
                 "💰 БАЛАНСЫ\n\n"
-                f"👥 Пользователей: {len(users)}\n"
-                f"💵 Общий баланс: {total:,} сум"
+                f"👥 Пользователей: "
+                f"{len(users)}\n"
+                f"💵 Общий баланс: "
+                f"{total:,} сум"
             ),
+
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -2357,6 +4369,7 @@ async def admin_callback(update, context):
                     )
                 ]
             ]),
+
             parse_mode="HTML",
         )
 
@@ -2365,16 +4378,31 @@ async def admin_callback(update, context):
     if data == "admin_stats":
 
         users = get_users()
-        active = sum(1 for row in users if not row[5])
-        banned = sum(1 for row in users if row[5])
+
+        active = sum(
+            1
+            for row in users
+            if not row[5]
+        )
+
+        banned = sum(
+            1
+            for row in users
+            if row[5]
+        )
 
         await query.message.edit_text(
+
             (
                 "📊 СТАТИСТИКА\n\n"
-                f"👥 Всего: {len(users)}\n"
-                f"🟢 Активных: {active}\n"
-                f"🔴 Заблокированных: {banned}"
+                f"👥 Всего: "
+                f"{len(users)}\n"
+                f"🟢 Активных: "
+                f"{active}\n"
+                f"🔴 Заблокированных: "
+                f"{banned}"
             ),
+
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton(
@@ -2383,6 +4411,7 @@ async def admin_callback(update, context):
                     )
                 ]
             ]),
+
             parse_mode="HTML",
         )
 
@@ -2391,8 +4420,11 @@ async def admin_callback(update, context):
     if data == "admin_back":
 
         await query.message.edit_text(
+
             "🛠 АДМИН-ПАНЕЛЬ",
+
             reply_markup=admin_keyboard(),
+
             parse_mode="HTML",
         )
 
@@ -2400,112 +4432,234 @@ async def admin_callback(update, context):
 
 
 # =========================================================
-# АДМИН: РАССЫЛКА ВСЕМ
+# АДМИН: РАССЫЛКА
 # =========================================================
 
-async def admin_broadcast_text(update, context):
+async def admin_broadcast_text(
+    update,
+    context
+):
+
     text = update.message.text
+
     users = get_users()
 
     success_count = 0
     fail_count = 0
 
-    status_msg = await update.message.reply_text("⏳ Начинаю рассылку...")
+    status_msg = await update.message.reply_text(
+        "⏳ Начинаю рассылку..."
+    )
 
     for row in users:
+
         user_id = row[0]
+
         try:
+
             await context.bot.send_message(
+
                 chat_id=user_id,
-                text=f"📢 Рассылка:\n\n{escape(text)}",
+
+                text=(
+                    f"📢 Рассылка:\n\n"
+                    f"{escape(text)}"
+                ),
+
                 parse_mode="HTML"
             )
+
             success_count += 1
+
         except Exception:
+
             fail_count += 1
 
     await status_msg.edit_text(
+
         f"✅ Рассылка завершена!\n\n"
-        f"👥 Успешно отправлено: {success_count}\n"
-        f"❌ Ошибок (заблокировали бота): {fail_count}",
+        f"👥 Успешно отправлено: "
+        f"{success_count}\n"
+        f"❌ Ошибок (заблокировали бота): "
+        f"{fail_count}",
+
         parse_mode="HTML"
     )
 
     context.user_data.clear()
+
     return ConversationHandler.END
 
 
 # =========================================================
-# АДМИН: СОЗДАНИЕ ПРОМОКОДА
+# АДМИН: ПРОМОКОД
 # =========================================================
 
-async def admin_promo_code(update, context):
-    code = update.message.text.strip().upper()
+async def admin_promo_code(
+    update,
+    context
+):
+
+    code = (
+        update.message.text
+        .strip()
+        .upper()
+    )
+
     if not code:
-        await update.message.reply_text("❌ Введите корректный код промокода.")
+
+        await update.message.reply_text(
+            "❌ Введите корректный код промокода."
+        )
+
         return ADMIN_PROMO_CODE
 
-    context.user_data["new_promo_code"] = code
-    await update.message.reply_text("💰 Введите сумму промокода (в сумах):")
+    context.user_data[
+        "new_promo_code"
+    ] = code
+
+    await update.message.reply_text(
+        "💰 Введите сумму промокода (в сумах):"
+    )
+
     return ADMIN_PROMO_AMOUNT
 
 
-async def admin_promo_amount(update, context):
-    text = update.message.text.replace(" ", "")
+async def admin_promo_amount(
+    update,
+    context
+):
+
+    text = (
+        update.message.text
+        .replace(" ", "")
+    )
+
     if not text.isdigit():
-        await update.message.reply_text("❌ Введите сумму цифрами.")
+
+        await update.message.reply_text(
+            "❌ Введите сумму цифрами."
+        )
+
         return ADMIN_PROMO_AMOUNT
 
     amount = int(text)
+
     if amount <= 0:
-        await update.message.reply_text("❌ Сумма должна быть больше 0.")
+
+        await update.message.reply_text(
+            "❌ Сумма должна быть больше 0."
+        )
+
         return ADMIN_PROMO_AMOUNT
 
-    context.user_data["new_promo_amount"] = amount
-    await update.message.reply_text("👥 Введите количество пользователей, которые смогут использовать этот промокод:")
+    context.user_data[
+        "new_promo_amount"
+    ] = amount
+
+    await update.message.reply_text(
+        "👥 Введите количество пользователей, "
+        "которые смогут использовать этот промокод:"
+    )
+
     return ADMIN_PROMO_USERS
 
 
-async def admin_promo_users(update, context):
-    text = update.message.text.strip()
+async def admin_promo_users(
+    update,
+    context
+):
+
+    text = (
+        update.message.text
+        .strip()
+    )
+
     if not text.isdigit():
-        await update.message.reply_text("❌ Введите число пользователей цифрами.")
+
+        await update.message.reply_text(
+            "❌ Введите число пользователей цифрами."
+        )
+
         return ADMIN_PROMO_USERS
 
     max_uses = int(text)
+
     if max_uses <= 0:
-        await update.message.reply_text("❌ Количество пользователей должно быть больше 0.")
+
+        await update.message.reply_text(
+            "❌ Количество пользователей "
+            "должно быть больше 0."
+        )
+
         return ADMIN_PROMO_USERS
 
-    code = context.user_data["new_promo_code"]
-    amount = context.user_data["new_promo_amount"]
+    code = context.user_data[
+        "new_promo_code"
+    ]
 
-    conn = sqlite3.connect(DB_FILE, timeout=20)
+    amount = context.user_data[
+        "new_promo_amount"
+    ]
+
+    conn = sqlite3.connect(
+        DB_FILE,
+        timeout=20
+    )
+
     cursor = conn.cursor()
+
     try:
+
         cursor.execute(
-            "INSERT OR REPLACE INTO promos (code, amount, max_uses, uses_count) VALUES (?, ?, ?, 0)",
-            (code, amount, max_uses)
+            """
+            INSERT OR REPLACE INTO promos
+            (code, amount, max_uses, uses_count)
+            VALUES (?, ?, ?, 0)
+            """,
+            (
+                code,
+                amount,
+                max_uses
+            )
         )
+
         conn.commit()
+
     except Exception as e:
-        logger.exception("CREATE PROMO ERROR: %s", e)
-        await update.message.reply_text("❌ Ошибка при создании промокода в базе данных.")
+
+        logger.exception(
+            "CREATE PROMO ERROR: %s",
+            e
+        )
+
+        await update.message.reply_text(
+            "❌ Ошибка при создании промокода "
+            "в базе данных."
+        )
+
         conn.close()
+
         context.user_data.clear()
+
         return ConversationHandler.END
+
     finally:
+
         conn.close()
 
     await update.message.reply_text(
+
         f"✅ Промокод успешно создан!\n\n"
         f"🎟 Код: `{escape(code)}`\n"
         f"💰 Сумма: {amount:,} сум\n"
         f"👥 Лимит пользователей: {max_uses}",
+
         parse_mode="HTML"
     )
 
     context.user_data.clear()
+
     return ConversationHandler.END
 
 
@@ -2513,9 +4667,15 @@ async def admin_promo_users(update, context):
 # АДМИН: ДОБАВИТЬ БАЛАНС
 # =========================================================
 
-async def admin_add_id(update, context):
+async def admin_add_id(
+    update,
+    context
+):
 
-    text = update.message.text.strip()
+    text = (
+        update.message.text
+        .strip()
+    )
 
     if not text.isdigit():
 
@@ -2526,22 +4686,37 @@ async def admin_add_id(update, context):
         return ADMIN_ADD_ID
 
     user_id = int(text)
-    user = get_user(user_id)
-    context.user_data["admin_user_id"] = user_id
+
+    user = get_user(
+        user_id
+    )
+
+    context.user_data[
+        "admin_user_id"
+    ] = user_id
 
     await update.message.reply_text(
+
         f"➕ Пользователь: `{user_id}`\n"
-        f"💰 Текущий баланс: {user['balance']:,} сум\n\n"
+        f"💰 Текущий баланс: "
+        f"{user['balance']:,} сум\n\n"
         "Введите сумму для добавления:",
+
         parse_mode="HTML",
     )
 
     return ADMIN_ADD_AMOUNT
 
 
-async def admin_add_amount(update, context):
+async def admin_add_amount(
+    update,
+    context
+):
 
-    text = update.message.text.replace(" ", "")
+    text = (
+        update.message.text
+        .replace(" ", "")
+    )
 
     if not text.isdigit():
 
@@ -2561,25 +4736,37 @@ async def admin_add_amount(update, context):
 
         return ADMIN_ADD_AMOUNT
 
-    user_id = context.user_data["admin_user_id"]
-    change_balance(user_id, amount)
+    user_id = context.user_data[
+        "admin_user_id"
+    ]
+
+    change_balance(
+        user_id,
+        amount
+    )
 
     await context.bot.send_message(
+
         user_id,
+
         (
             "💰 Баланс изменён администратором\n\n"
             f"➕ Добавлено: {amount:,} сум"
         ),
+
         parse_mode="HTML",
     )
 
     await update.message.reply_text(
+
         f"✅ Добавлено {amount:,} сум\n"
         f"👤 ID: `{user_id}`",
+
         parse_mode="HTML",
     )
 
     context.user_data.clear()
+
     return ConversationHandler.END
 
 
@@ -2587,9 +4774,15 @@ async def admin_add_amount(update, context):
 # АДМИН: УБАВИТЬ БАЛАНС
 # =========================================================
 
-async def admin_sub_id(update, context):
+async def admin_sub_id(
+    update,
+    context
+):
 
-    text = update.message.text.strip()
+    text = (
+        update.message.text
+        .strip()
+    )
 
     if not text.isdigit():
 
@@ -2600,22 +4793,37 @@ async def admin_sub_id(update, context):
         return ADMIN_SUB_ID
 
     user_id = int(text)
-    user = get_user(user_id)
-    context.user_data["admin_user_id"] = user_id
+
+    user = get_user(
+        user_id
+    )
+
+    context.user_data[
+        "admin_user_id"
+    ] = user_id
 
     await update.message.reply_text(
+
         f"➖ Пользователь: `{user_id}`\n"
-        f"💰 Текущий баланс: {user['balance']:,} сум\n\n"
+        f"💰 Текущий баланс: "
+        f"{user['balance']:,} сум\n\n"
         "Введите сумму для снятия:",
+
         parse_mode="HTML",
     )
 
     return ADMIN_SUB_AMOUNT
 
 
-async def admin_sub_amount(update, context):
+async def admin_sub_amount(
+    update,
+    context
+):
 
-    text = update.message.text.replace(" ", "")
+    text = (
+        update.message.text
+        .replace(" ", "")
+    )
 
     if not text.isdigit():
 
@@ -2635,33 +4843,51 @@ async def admin_sub_amount(update, context):
 
         return ADMIN_SUB_AMOUNT
 
-    user_id = context.user_data["admin_user_id"]
-    user = get_user(user_id)
+    user_id = context.user_data[
+        "admin_user_id"
+    ]
+
+    user = get_user(
+        user_id
+    )
 
     if user["balance"] < amount:
+
         await update.message.reply_text(
-            f"❌ У пользователя баланс только {user['balance']:,} сум."
+
+            f"❌ У пользователя баланс только "
+            f"{user['balance']:,} сум."
         )
+
         return ConversationHandler.END
 
-    change_balance(user_id, -amount)
+    change_balance(
+        user_id,
+        -amount
+    )
 
     await context.bot.send_message(
+
         user_id,
+
         (
             "💰 Баланс изменён администратором\n\n"
             f"➖ Снято: {amount:,} сум"
         ),
+
         parse_mode="HTML",
     )
 
     await update.message.reply_text(
+
         f"✅ Убавлено {amount:,} сум\n"
         f"👤 ID: `{user_id}`",
+
         parse_mode="HTML",
     )
 
     context.user_data.clear()
+
     return ConversationHandler.END
 
 
@@ -2669,9 +4895,15 @@ async def admin_sub_amount(update, context):
 # АДМИН: БАН
 # =========================================================
 
-async def admin_ban_id(update, context):
+async def admin_ban_id(
+    update,
+    context
+):
 
-    text = update.message.text.strip()
+    text = (
+        update.message.text
+        .strip()
+    )
 
     if not text.isdigit():
 
@@ -2682,8 +4914,15 @@ async def admin_ban_id(update, context):
         return ADMIN_BAN_ID
 
     user_id = int(text)
-    get_user(user_id)
-    set_ban(user_id, 1)
+
+    get_user(
+        user_id
+    )
+
+    set_ban(
+        user_id,
+        1
+    )
 
     await context.bot.send_message(
         user_id,
@@ -2691,7 +4930,9 @@ async def admin_ban_id(update, context):
     )
 
     await update.message.reply_text(
+
         f"✅ Пользователь `{user_id}` заблокирован.",
+
         parse_mode="HTML",
     )
 
@@ -2702,9 +4943,15 @@ async def admin_ban_id(update, context):
 # АДМИН: РАЗБАН
 # =========================================================
 
-async def admin_unban_id(update, context):
+async def admin_unban_id(
+    update,
+    context
+):
 
-    text = update.message.text.strip()
+    text = (
+        update.message.text
+        .strip()
+    )
 
     if not text.isdigit():
 
@@ -2715,8 +4962,15 @@ async def admin_unban_id(update, context):
         return ADMIN_UNBAN_ID
 
     user_id = int(text)
-    get_user(user_id)
-    set_ban(user_id, 0)
+
+    get_user(
+        user_id
+    )
+
+    set_ban(
+        user_id,
+        0
+    )
 
     await context.bot.send_message(
         user_id,
@@ -2724,7 +4978,9 @@ async def admin_unban_id(update, context):
     )
 
     await update.message.reply_text(
+
         f"✅ Пользователь `{user_id}` разблокирован.",
+
         parse_mode="HTML",
     )
 
@@ -2735,9 +4991,15 @@ async def admin_unban_id(update, context):
 # АДМИН: СООБЩЕНИЕ
 # =========================================================
 
-async def admin_message_id(update, context):
+async def admin_message_id(
+    update,
+    context
+):
 
-    text = update.message.text.strip()
+    text = (
+        update.message.text
+        .strip()
+    )
 
     if not text.isdigit():
 
@@ -2748,42 +5010,90 @@ async def admin_message_id(update, context):
         return ADMIN_MESSAGE_ID
 
     user_id = int(text)
-    get_user(user_id)
-    context.user_data["admin_user_id"] = user_id
+
+    get_user(
+        user_id
+    )
+
+    context.user_data[
+        "admin_user_id"
+    ] = user_id
 
     await update.message.reply_text(
+
         f"💬 ID пользователя: `{user_id}`\n\n"
         "Теперь напишите сообщение:",
+
         parse_mode="HTML",
     )
 
     return ADMIN_MESSAGE_TEXT
 
 
-async def admin_message_text(update, context):
+async def admin_message_text(
+    update,
+    context
+):
 
-    user_id = context.user_data["admin_user_id"]
+    user_id = context.user_data[
+        "admin_user_id"
+    ]
+
     text = update.message.text
 
     try:
+
         await context.bot.send_message(
+
             user_id,
+
             (
                 "📩 Сообщение от администратора\n\n"
                 f"{escape(text)}"
             ),
+
             parse_mode="HTML",
         )
-        await update.message.reply_text("✅ Сообщение отправлено.")
-    except Exception as e:
-        logger.exception(e)
+
         await update.message.reply_text(
+            "✅ Сообщение отправлено."
+        )
+
+    except Exception as e:
+
+        logger.exception(
+            e
+        )
+
+        await update.message.reply_text(
+
             "❌ Не удалось отправить сообщение.\n"
             "Возможно, пользователь заблокировал бота."
         )
 
     context.user_data.clear()
+
     return ConversationHandler.END
+
+
+# =========================================================
+# UNKNOWN CALLBACK
+# =========================================================
+
+async def unknown_callback(
+    update,
+    context
+):
+
+    query = update.callback_query
+
+    try:
+
+        await query.answer()
+
+    except Exception:
+
+        pass
 
 
 # =========================================================
@@ -2834,122 +5144,172 @@ def main():
         states={
 
             REFILL_AMOUNT: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     refill_amount,
                 )
+
             ],
 
             BUY_AMOUNT: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     buy_amount,
                 )
+
             ],
 
             BUY_USERNAME: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     buy_username,
                 )
+
             ],
 
             BUY_CONFIRM: [
+
                 CallbackQueryHandler(
                     buy_confirm,
                     pattern=r"^(confirm_buy|cancel_buy)$",
                 )
+
             ],
 
             ADMIN_ADD_ID: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_add_id,
                 )
+
             ],
 
             ADMIN_ADD_AMOUNT: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_add_amount,
                 )
+
             ],
 
             ADMIN_SUB_ID: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_sub_id,
                 )
+
             ],
 
             ADMIN_SUB_AMOUNT: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_sub_amount,
                 )
+
             ],
 
             ADMIN_BAN_ID: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_ban_id,
                 )
+
             ],
 
             ADMIN_UNBAN_ID: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_unban_id,
                 )
+
             ],
 
             ADMIN_MESSAGE_ID: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_message_id,
                 )
+
             ],
 
             ADMIN_MESSAGE_TEXT: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_message_text,
                 )
+
             ],
 
             ADMIN_BROADCAST_TEXT: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_broadcast_text,
                 )
+
             ],
 
             ADMIN_PROMO_CODE: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_promo_code,
                 )
+
             ],
 
             ADMIN_PROMO_AMOUNT: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_promo_amount,
                 )
+
             ],
 
             ADMIN_PROMO_USERS: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     admin_promo_users,
                 )
+
             ],
 
             ACTIVATE_PROMO_STATE: [
+
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
+                    filters.TEXT
+                    & ~filters.COMMAND,
                     activate_promo_input,
                 )
+
             ],
 
         },
@@ -2972,7 +5332,9 @@ def main():
 
     )
 
-    application.add_handler(conversation_handler)
+    application.add_handler(
+        conversation_handler
+    )
 
     application.add_handler(
         CommandHandler(
@@ -3039,23 +5401,17 @@ def main():
 
     application.add_handler(
         CallbackQueryHandler(
-            unknown_callback,
+            unknown_callback
         )
     )
 
-    logger.info("BOT STARTED")
+    logger.info(
+        "BOT STARTED"
+    )
 
     application.run_polling(
         drop_pending_updates=True
     )
-
-
-async def unknown_callback(update, context):
-    query = update.callback_query
-    try:
-        await query.answer()
-    except Exception:
-        pass
 
 
 if __name__ == "__main__":
