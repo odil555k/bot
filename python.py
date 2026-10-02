@@ -37,7 +37,7 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "StarrPayy_support") # Укажите ваш юзернейм для связи (без @)
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "your_username") # Укажите ваш юзернейм для связи (без @)
 
 # Partner API для автоматической покупки Telegram Stars / Premium.
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
@@ -55,7 +55,7 @@ DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
-    "5614 6835 1772 2716"
+    "5614 6812 1542 3546"
 )
 
 PRICE_PER_STAR = 220
@@ -132,15 +132,15 @@ TEXTS = {
 
         "back": "⬅️ Назад",
 
-        "shop": "🛍 Выберите услугу:",
+        "shop": "🛍 **Выберите услугу:**",
 
         "stars": (
-            "💎 Telegram Stars\n\n"
+            "💎 **Telegram Stars**\n\n"
             "💰 Цена: {price:,} сум за 1 Stars"
         ),
 
         "premium": (
-            "🌟 Telegram Premium\n\n"
+            "🌟 **Telegram Premium**\n\n"
             "Выберите срок подписки:"
         ),
 
@@ -171,7 +171,7 @@ TEXTS = {
         "cancelled": "❌ Действие отменено.",
 
         "refill_choose": (
-            "💳 Выберите способ пополнения баланса:"
+            "💳 **Выберите способ пополнения баланса:**"
         ),
 
         "refill_enter": (
@@ -180,11 +180,11 @@ TEXTS = {
         ),
 
         "refill_payment": (
-            "💳 Пополнение баланса через карту\n\n"
-            "💰 На баланс: {amount:,} сум\n"
-            "💵 Перевести нужно: <code>{payment_amount:,}<code> сум\n\n"
-            "Переведите **точно эту сумму** на карту:\n"
-            "<code>{card}<code>\n\n"
+            "💳 **Пополнение баланса через карту**\n\n"
+            "💰 На баланс: **{amount:,} сум**\n"
+            "💵 Перевести нужно: **{payment_amount:,} сум**\n\n"
+            "Переведите **точно эту сумму** на карту (нажмите на номер, чтобы скопировать):\n"
+            "`{card}`\n\n"
             "⏳ После поступления перевода баланс будет пополнен автоматически."
         ),
 
@@ -199,7 +199,7 @@ TEXTS = {
         "send_receipt": "❌ Отправьте подтверждение оплаты.",
 
         "confirm_order": (
-            "🛒 Проверьте заказ\n\n"
+            "🛒 **Проверьте заказ**\n\n"
             "📦 Товар: {product}\n"
             "👤 Получатель: @{username}\n"
             "💰 Цена: {price:,} сум\n\n"
@@ -227,12 +227,12 @@ TEXTS = {
         "shop": "🛍 **Xizmatni tanlang:**",
 
         "stars": (
-            "💎 Telegram Stars\n\n"
+            "💎 **Telegram Stars**\n\n"
             "💰 Narx: 1 Stars — {price:,} so'm"
         ),
 
         "premium": (
-            "🌟 Telegram Premium\n\n"
+            "🌟 **Telegram Premium**\n\n"
             "Muddatni tanlang:"
         ),
 
@@ -260,7 +260,7 @@ TEXTS = {
         "cancelled": "❌ Bekor qilindi.",
 
         "refill_choose": (
-            "💳 Balansni to'ldirish usulini tanlang:"
+            "💳 **Balansni to'ldirish usulini tanlang:**"
         ),
 
         "refill_enter": (
@@ -288,7 +288,7 @@ TEXTS = {
         "send_receipt": "❌ To'lov tasdig'ini yuboring.",
 
         "confirm_order": (
-            "🛒 Buyurtmani tekshiring\n\n"
+            "🛒 **Buyurtmani tekshiring**\n\n"
             "📦 Mahsulot: {product}\n"
             "👤 Qabul qiluvchi: @{username}\n"
             "💰 Narx: {price:,} so'm\n\n"
@@ -1872,9 +1872,6 @@ async def refill_amount(update, context):
         payment_amount,
     )
 
-    context.user_data.clear()
-    return ConversationHandler.END
-
 
 # =========================================================
 # ОТМЕНА
@@ -2219,7 +2216,7 @@ async def admin_callback(update, context):
 
                     InlineKeyboardButton(
 
-                        "⬅️️ Назад",
+                        "⬅ Назад",
 
                         callback_data="admin_back",
 
@@ -3047,7 +3044,7 @@ def main():
 
 
     # =====================================================
-    # ADMIN
+    # АДМИН
     # =====================================================
 
     application.add_handler(
