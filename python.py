@@ -30,6 +30,7 @@ from telegram.ext import (
     filters,
 )
 
+
 # =========================================================
 # НАСТРОЙКИ
 # =========================================================
@@ -44,14 +45,6 @@ PARTNER_API_URL = os.environ.get(
     "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api/v2",
 ).rstrip("/")
 PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
-
-# Настройки TG-Lion API для покупки номеров
-TGLION_API_KEY = os.environ.get("TGLION_API_KEY", "YOUR_API_KEY")
-TGLION_USER_ID = os.environ.get("TGLION_USER_ID", "Your_ID")
-TGLION_BASE_URL = "https://TG-Lion.net"
-
-# Курс перевода долларов TG-Lion в сумы (например, 1 USD = 13000 сум, настраивайте под себя)
-UZS_PER_USD = float(os.environ.get("UZS_PER_USD", "13000"))
 
 CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
 CARDXABAR_DRY_RUN = os.environ.get("CARDXABAR_DRY_RUN", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -71,6 +64,7 @@ PREMIUM_PRICES = {
     12: 406000,
 }
 
+
 # =========================================================
 # ЛОГИ
 # =========================================================
@@ -81,6 +75,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
 
 # =========================================================
 # СОСТОЯНИЯ
@@ -110,6 +105,7 @@ ADMIN_PROMO_CODE = 15
 ADMIN_PROMO_AMOUNT = 16
 ADMIN_PROMO_USERS = 17
 ACTIVATE_PROMO_STATE = 18
+
 
 # =========================================================
 # ЯЗЫКИ
@@ -306,6 +302,7 @@ TEXTS = {
 # =========================================================
 
 def init_db():
+
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
@@ -357,29 +354,16 @@ def init_db():
         )
     """)
 
-    # Таблица для купленных номеров через TG-Lion
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tglion_orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            phone_number TEXT NOT NULL,
-            country_code TEXT NOT NULL,
-            price_usd TEXT NOT NULL,
-            price_uzs INTEGER NOT NULL,
-            status TEXT DEFAULT 'active',
-            created_at TEXT NOT NULL
-        )
-    """)
-
     conn.commit()
     conn.close()
 
 
 def get_user(
-        user_id,
-        username="",
-        name=""
+    user_id,
+    username="",
+    name=""
 ):
+
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
@@ -452,6 +436,7 @@ def get_user(
 
 
 def set_language(user_id, lang):
+
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
@@ -469,6 +454,7 @@ def set_language(user_id, lang):
 
 
 def change_balance(user_id, amount):
+
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
@@ -486,6 +472,7 @@ def change_balance(user_id, amount):
 
 
 def set_ban(user_id, value):
+
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
@@ -503,6 +490,7 @@ def set_ban(user_id, value):
 
 
 def get_users():
+
     conn = sqlite3.connect(DB_FILE, timeout=20)
     cursor = conn.cursor()
 
@@ -560,6 +548,7 @@ def create_cardxabar_payment(user_id, requested_amount):
 
 
 def tr(user_id, key, **kwargs):
+
     data = get_user(user_id)
     lang = data.get("lang", "ru")
 
@@ -579,6 +568,7 @@ def tr(user_id, key, **kwargs):
 # =========================================================
 
 async def check_ban(update):
+
     user = update.effective_user
 
     if not user:
@@ -845,6 +835,7 @@ def run_web():
 # =========================================================
 
 def main_keyboard(user_id):
+
     return InlineKeyboardMarkup([
 
         [
@@ -888,6 +879,7 @@ def main_keyboard(user_id):
 # =========================================================
 
 async def start(update, context):
+
     context.user_data.clear()
 
     if await check_ban(update):
@@ -922,6 +914,7 @@ async def start(update, context):
 # =========================================================
 
 async def profile_callback(update, context):
+
     query = update.callback_query
     await query.answer()
 
@@ -1048,6 +1041,7 @@ async def activate_promo_input(update, context):
 # =========================================================
 
 async def main_buttons(update, context):
+
     if await check_ban(update):
         return
 
@@ -1063,6 +1057,7 @@ async def main_buttons(update, context):
     )
 
     if query.data == "back_main":
+
         await query.message.edit_text(
 
             tr(
@@ -1081,6 +1076,7 @@ async def main_buttons(update, context):
         return
 
     if query.data == "language_menu":
+
         keyboard = [
 
             [
@@ -1119,6 +1115,7 @@ async def main_buttons(update, context):
         return
 
     if query.data == "main_shop":
+
         keyboard = [
 
             [
@@ -1132,13 +1129,6 @@ async def main_buttons(update, context):
                 InlineKeyboardButton(
                     "🌟 Premium",
                     callback_data="shop_premium",
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    "📱 Номера (TG-Lion)",
-                    callback_data="shop_numbers",
                 )
             ],
 
@@ -1164,6 +1154,7 @@ async def main_buttons(update, context):
         return
 
     if query.data == "shop_stars":
+
         keyboard = [
 
             [
@@ -1213,6 +1204,7 @@ async def main_buttons(update, context):
         return
 
     if query.data == "shop_premium":
+
         keyboard = [
 
             [
@@ -1263,6 +1255,7 @@ async def main_buttons(update, context):
 # =========================================================
 
 async def language_callback(update, context):
+
     query = update.callback_query
     await query.answer()
 
@@ -1366,15 +1359,14 @@ async def send_order_to_partner(product_type, value, target, telegram_user_id):
     if result.get("ok") is True:
         result_data = result.get("result") or {}
         order_id = result_data.get("order_id") if isinstance(result_data, dict) else None
-        logger.info("PARTNER ORDER SUCCESS | type=%s | target=%s | value=%s | order_id=%s", product_type, target, value,
-                    order_id)
+        logger.info("PARTNER ORDER SUCCESS | type=%s | target=%s | value=%s | order_id=%s", product_type, target, value, order_id)
         return True, order_id, None
 
     api_error = (
-            result.get("message")
-            or result.get("error")
-            or result.get("code")
-            or "Partner API не выполнил заказ."
+        result.get("message")
+        or result.get("error")
+        or result.get("code")
+        or "Partner API не выполнил заказ."
     )
 
     logger.error(
@@ -1385,209 +1377,11 @@ async def send_order_to_partner(product_type, value, target, telegram_user_id):
 
 
 # =========================================================
-# TG-LION API (ПОКУПКА НОМЕРОВ)
-# =========================================================
-
-async def tglion_api_request(action, params=None):
-    if params is None:
-        params = {}
-    params["apiKey"] = TGLION_API_KEY
-    params["YourID"] = TGLION_USER_ID
-    params["action"] = action
-
-    try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            response = await client.get(TGLION_BASE_URL, params=params)
-        logger.info("TGLION API RESPONSE | action=%s | HTTP=%s | BODY=%s", action, response.status_code,
-                    response.text[:2000])
-        return response.json()
-    except Exception as e:
-        logger.exception("TGLION API ERROR | action=%s | error=%s", action, e)
-        return None
-
-
-async def shop_numbers_menu(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    data = await tglion_api_request("available_countries")
-    if not data or data.get("status") != "ok":
-        await query.message.edit_text(
-            "❌ Не удалось загрузить список стран. Попробуйте позже.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")]])
-        )
-        return
-
-    countries = data.get("countries", {})
-    keyboard = []
-
-    for code, info in countries.items():
-        name = info.get("name", code)
-        qty = info.get("qty", 0)
-        price_usd = float(info.get("price", 0))
-        price_uzs = int(price_usd * UZS_PER_USD)
-
-        btn_text = f"{name} | 📦 {qty} шт | 💰 {price_uzs:,} сум"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"tglion_country_{code}")])
-
-    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="main_shop")])
-
-    await query.message.edit_text(
-        "📱 **Выберите страну для покупки номера:**",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
-
-
-async def tglion_country_select(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    country_code = query.data.replace("tglion_country_", "")
-    context.user_data["tglion_country_code"] = country_code
-
-    data = await tglion_api_request("country_info", {"country_code": country_code})
-    if not data:
-        await query.message.edit_text(
-            "❌ Ошибка получения информации о стране.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="shop_numbers")]])
-        )
-        return
-
-    name = data.get("name", country_code)
-    qty = data.get("qty", 0)
-    price_usd = float(data.get("price", 0))
-    price_uzs = int(price_usd * UZS_PER_USD)
-
-    context.user_data["tglion_price_uzs"] = price_uzs
-    context.user_data["tglion_price_usd"] = str(price_usd)
-
-    keyboard = [
-        [InlineKeyboardButton("✅ Купить номер", callback_data="tglion_buy_confirm")],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="shop_numbers")]
-    ]
-
-    await query.message.edit_text(
-        f"🇺🇿 Страна: **{escape(name)}**\n"
-        f"📦 Доступно номеров: {qty}\n"
-        f"💰 Цена: {price_uzs:,} сум (~{price_usd} USD)\n\n"
-        "Хотите приобрести номер?",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
-
-
-async def tglion_buy_confirm_callback(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    user = query.from_user
-    country_code = context.user_data.get("tglion_country_code")
-    price_uzs = context.user_data.get("tglion_price_uzs")
-    price_usd = context.user_data.get("tglion_price_usd")
-
-    db_user = get_user(user.id)
-    if db_user["balance"] < price_uzs:
-        await query.message.edit_text(
-            f"❌ Недостаточно средств на балансе.\n\n"
-            f"💰 Нужно: {price_uzs:,} сум\n"
-            f"💳 Ваш баланс: {db_user['balance']:,} сум",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="shop_numbers")]])
-        )
-        return
-
-    await query.message.edit_text("🔄 Покупаем номер, ожидайте...")
-
-    res = await tglion_api_request("getNumber", {"country_code": country_code})
-    if not res or res.get("status") != "ok":
-        err_msg = res.get("message", "Не удалось купить номер в API.") if res else "Ошибка соединения с API."
-        await query.message.edit_text(
-            f"❌ Ошибка покупки: {escape(err_msg)}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="shop_numbers")]])
-        )
-        return
-
-    number = res.get("Number")
-    country_name = res.get("name", country_code)
-
-    # Списываем баланс
-    change_balance(user.id, -price_uzs)
-
-    # Сохраняем в БД
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO tglion_orders (user_id, phone_number, country_code, price_usd, price_uzs, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (user.id, number, country_code, str(price_usd), price_uzs, datetime.now().isoformat(timespec="seconds"))
-    )
-    conn.commit()
-    conn.close()
-
-    keyboard = [
-        [InlineKeyboardButton("📩 Получить код (SMS)", callback_data=f"tglion_code_{number}")],
-        [InlineKeyboardButton("🛍 В главное меню", callback_data="back_main")]
-    ]
-
-    await query.message.edit_text(
-        f"✅ **Номер успешно куплен!**\n\n"
-        f"🌍 Страна: {escape(country_name)}\n"
-        f"📞 Номер: `{escape(number)}`\n"
-        f"💰 Списано: {price_uzs:,} сум\n\n"
-        "Нажмите кнопку ниже, чтобы получить код подтверждения от Telegram, когда запросите его.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
-
-
-async def tglion_get_code_callback(update, context):
-    query = update.callback_query
-    await query.answer()
-
-    number = query.data.replace("tglion_code_", "")
-
-    await query.message.edit_text("⏳ Запрашиваем код подтверждения...")
-
-    res = await tglion_api_request("getCode", {"number": number})
-    if not res or res.get("status") != "ok":
-        err_msg = res.get("message", "Код еще не пришел или номер неактивен.") if res else "Ошибка связи с API."
-        keyboard = [
-            [InlineKeyboardButton("🔄 Попробовать еще раз", callback_data=f"tglion_code_{number}")],
-            [InlineKeyboardButton("⬅️ В меню", callback_data="back_main")]
-        ]
-        await query.message.edit_text(
-            f"⏳ **Код пока не получен**\n\n{escape(err_msg)}\n\n"
-            "Убедитесь, что вы отправили код в Telegram на этот номер, затем попробуйте снова.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
-        )
-        return
-
-    code = res.get("code", "Не найден")
-    password = res.get("pass", "Отсутствует")
-
-    keyboard = [
-        [InlineKeyboardButton("🔄 Обновить код", callback_data=f"tglion_code_{number}")],
-        [InlineKeyboardButton("⬅️ В меню", callback_data="back_main")]
-    ]
-
-    await query.message.edit_text(
-        f"🎉 **Код успешно получен!**\n\n"
-        f"📞 Номер: `{escape(number)}`\n"
-        f"🔑 Код подтверждения: `{escape(str(code))}`\n"
-        f"🔐 Пароль 2FA (если был): `{escape(str(password))}`",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
-
-
-# =========================================================
 # ПОКУПКА STARS / PREMIUM
 # =========================================================
 
 async def buy_start(update, context):
+
     query = update.callback_query
     await query.answer()
     context.user_data.clear()
@@ -1595,6 +1389,7 @@ async def buy_start(update, context):
     data = query.data
 
     if data == "buy_stars":
+
         context.user_data["product_type"] = "stars"
 
         await query.message.edit_text(
@@ -1607,6 +1402,7 @@ async def buy_start(update, context):
         return BUY_AMOUNT
 
     if data.startswith("buy_stars_"):
+
         amount = int(data.split("_")[2])
 
         context.user_data["product_type"] = "stars"
@@ -1619,6 +1415,7 @@ async def buy_start(update, context):
         return BUY_USERNAME
 
     if data.startswith("buy_premium_"):
+
         months = int(data.split("_")[2])
 
         context.user_data["product_type"] = "premium"
@@ -1638,9 +1435,11 @@ async def buy_start(update, context):
 
 
 async def buy_amount(update, context):
+
     text = update.message.text.strip()
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите корректное количество Stars."
         )
@@ -1650,6 +1449,7 @@ async def buy_amount(update, context):
     amount = int(text)
 
     if amount < 50 or amount > 10000:
+
         await update.message.reply_text(
             "❌ Можно купить от 50 до 10000 Stars."
         )
@@ -1669,9 +1469,11 @@ async def buy_amount(update, context):
 
 
 async def buy_username(update, context):
+
     username = update.message.text.strip().replace("@", "")
 
     if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+
         await update.message.reply_text(
             "❌ Введите корректный юзернейм."
         )
@@ -1696,6 +1498,7 @@ async def buy_username(update, context):
     )
 
     if data["balance"] < price:
+
         await update.message.reply_text(
             tr(
                 user.id,
@@ -1735,12 +1538,14 @@ async def buy_username(update, context):
 
 
 async def buy_confirm(update, context):
+
     query = update.callback_query
     await query.answer()
 
     user = query.from_user
 
     if query.data == "cancel_buy":
+
         context.user_data.clear()
 
         await query.message.edit_text(
@@ -1938,6 +1743,7 @@ async def refill_amount(update, context):
 # =========================================================
 
 async def cancel(update, context):
+
     context.user_data.clear()
     user_id = update.effective_user.id
 
@@ -1970,6 +1776,7 @@ def is_admin(user_id):
 
 
 def admin_keyboard():
+
     return InlineKeyboardMarkup([
 
         [
@@ -2010,6 +1817,7 @@ def admin_keyboard():
 
 
 async def admin(update, context):
+
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Нет доступа.")
         return
@@ -2022,6 +1830,7 @@ async def admin(update, context):
 
 
 async def admin_callback(update, context):
+
     query = update.callback_query
     await query.answer()
 
@@ -2069,6 +1878,7 @@ async def admin_callback(update, context):
         text = "👥 ПОЛЬЗОВАТЕЛИ\n\n"
 
         for index, row in enumerate(users[:50], 1):
+
             user_id, username, name, balance, lang, banned = row
 
             username_text = (
@@ -2108,6 +1918,7 @@ async def admin_callback(update, context):
         return ConversationHandler.END
 
     if data == "admin_balances":
+
         users = get_users()
         total = sum(row[3] for row in users)
 
@@ -2131,6 +1942,7 @@ async def admin_callback(update, context):
         return ConversationHandler.END
 
     if data == "admin_stats":
+
         users = get_users()
         active = sum(1 for row in users if not row[5])
         banned = sum(1 for row in users if row[5])
@@ -2156,6 +1968,7 @@ async def admin_callback(update, context):
         return ConversationHandler.END
 
     if data == "admin_back":
+
         await query.message.edit_text(
             "🛠 АДМИН-ПАНЕЛЬ",
             reply_markup=admin_keyboard(),
@@ -2280,9 +2093,11 @@ async def admin_promo_users(update, context):
 # =========================================================
 
 async def admin_add_id(update, context):
+
     text = update.message.text.strip()
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите правильный ID."
         )
@@ -2304,9 +2119,11 @@ async def admin_add_id(update, context):
 
 
 async def admin_add_amount(update, context):
+
     text = update.message.text.replace(" ", "")
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите сумму цифрами."
         )
@@ -2316,6 +2133,7 @@ async def admin_add_amount(update, context):
     amount = int(text)
 
     if amount <= 0:
+
         await update.message.reply_text(
             "❌ Сумма должна быть больше 0."
         )
@@ -2349,9 +2167,11 @@ async def admin_add_amount(update, context):
 # =========================================================
 
 async def admin_sub_id(update, context):
+
     text = update.message.text.strip()
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите правильный ID."
         )
@@ -2373,9 +2193,11 @@ async def admin_sub_id(update, context):
 
 
 async def admin_sub_amount(update, context):
+
     text = update.message.text.replace(" ", "")
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите сумму цифрами."
         )
@@ -2385,6 +2207,7 @@ async def admin_sub_amount(update, context):
     amount = int(text)
 
     if amount <= 0:
+
         await update.message.reply_text(
             "❌ Сумма должна быть больше 0."
         )
@@ -2426,9 +2249,11 @@ async def admin_sub_amount(update, context):
 # =========================================================
 
 async def admin_ban_id(update, context):
+
     text = update.message.text.strip()
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите правильный ID."
         )
@@ -2457,9 +2282,11 @@ async def admin_ban_id(update, context):
 # =========================================================
 
 async def admin_unban_id(update, context):
+
     text = update.message.text.strip()
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите правильный ID."
         )
@@ -2488,9 +2315,11 @@ async def admin_unban_id(update, context):
 # =========================================================
 
 async def admin_message_id(update, context):
+
     text = update.message.text.strip()
 
     if not text.isdigit():
+
         await update.message.reply_text(
             "❌ Введите правильный ID."
         )
@@ -2511,6 +2340,7 @@ async def admin_message_id(update, context):
 
 
 async def admin_message_text(update, context):
+
     user_id = context.user_data["admin_user_id"]
     text = update.message.text
 
@@ -2540,6 +2370,7 @@ async def admin_message_text(update, context):
 # =========================================================
 
 def main():
+
     init_db()
 
     threading.Thread(
@@ -2768,32 +2599,6 @@ def main():
         CallbackQueryHandler(
             refill_admin_contact,
             pattern=r"^refill_admin$",
-        )
-    )
-
-    # Обработчики для номеров TG-Lion
-    application.add_handler(
-        CallbackQueryHandler(
-            shop_numbers_menu,
-            pattern=r"^shop_numbers$",
-        )
-    )
-    application.add_handler(
-        CallbackQueryHandler(
-            tglion_country_select,
-            pattern=r"^tglion_country_[A-Z]+$",
-        )
-    )
-    application.add_handler(
-        CallbackQueryHandler(
-            tglion_buy_confirm_callback,
-            pattern=r"^tglion_buy_confirm$",
-        )
-    )
-    application.add_handler(
-        CallbackQueryHandler(
-            tglion_code_callback,
-            pattern=r"^tglion_code_\+?[0-9]+$",
         )
     )
 
