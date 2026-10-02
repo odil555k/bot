@@ -37,6 +37,7 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "your_username") # Укажите ваш юзернейм для связи (без @)
 
 # Partner API для автоматической покупки Telegram Stars / Premium.
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
@@ -45,14 +46,6 @@ PARTNER_API_URL = os.environ.get(
     "https://69544e6345d5c.xvest5.ru/AVOBuilder_v4/bots/AVOStarsUzBot/api/v2",
 ).rstrip("/")
 PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
-
-# Отдельный API для виртуальных номеров и SMS.
-SIM_API_KEY = os.environ["SIM_API_KEY"]
-SIM_API_BASE_URL = os.environ.get(
-    "SIM_API_BASE_URL",
-    "https://sim.roxiy.uz",
-).rstrip("/")
-SIM_API_TIMEOUT = float(os.environ.get("SIM_API_TIMEOUT", "30"))
 
 # Секрет для связи отдельного клиента с ботом.
 CARDXABAR_API_KEY = os.environ["CARDXABAR_API_KEY"]
@@ -72,24 +65,6 @@ PREMIUM_PRICES = {
     6: 222000,
     12: 406000,
 }
-
-# Наценка на номера: 30% прибыли от конечной цены.
-NUMBER_PROFIT_PERCENT = 30
-
-def number_sale_price(cost_uzs):
-    """Цена для пользователя так, чтобы прибыль составляла 30% от продажи."""
-    cost = int(cost_uzs)
-    if cost <= 0:
-        return 0
-    return math.ceil(cost * 100 / (100 - NUMBER_PROFIT_PERCENT))
-
-
-def country_flag(country_code):
-    """Возвращает emoji-флаг по ISO-коду страны, например CA -> 🇨🇦."""
-    code = str(country_code or "").strip().upper()
-    if len(code) != 2 or not code.isalpha():
-        return "🌍"
-    return "".join(chr(ord("🇦") + ord(ch) - ord("A")) for ch in code)
 
 
 # =========================================================
@@ -157,15 +132,15 @@ TEXTS = {
 
         "back": "⬅️ Назад",
 
-        "shop": "🛍 <b>Выберите услугу:</b>",
+        "shop": "🛍 **Выберите услугу:**",
 
         "stars": (
-            "💎 <b>Telegram Stars</b>\n\n"
+            "💎 **Telegram Stars**\n\n"
             "💰 Цена: {price:,} сум за 1 Stars"
         ),
 
         "premium": (
-            "🌟 <b>Telegram Premium</b>\n\n"
+            "🌟 **Telegram Premium**\n\n"
             "Выберите срок подписки:"
         ),
 
@@ -195,55 +170,36 @@ TEXTS = {
 
         "cancelled": "❌ Действие отменено.",
 
+        "refill_choose": (
+            "💳 **Выберите способ пополнения баланса:**"
+        ),
+
         "refill_enter": (
             "💳 Введите сумму пополнения в сумах.\n\n"
             "Например: 50000"
         ),
 
         "refill_payment": (
-            "💳 <b>Пополнение баланса</b>\n\n"
-            "💰 На баланс: <b>{amount:,} сум</b>\n"
-            "💵 Перевести нужно: <b>{payment_amount:,} сум</b>\n\n"
-            "Переведите <b>точно эту сумму</b> на карту:\n"
-            "<code>{card}</code>\n\n"
-            "После перевода чек отправлять не нужно.\n"
+            "💳 **Пополнение баланса через карту**\n\n"
+            "💰 На баланс: **{amount:,} сум**\n"
+            "💵 Перевести нужно: **{payment_amount:,} сум**\n\n"
+            "Переведите **точно эту сумму** на карту:\n"
+            "`{card}`\n\n"
             "⏳ После поступления перевода баланс будет пополнен автоматически."
+        ),
+
+        "refill_admin": (
+            "👤 **Пополнение через администратора**\n\n"
+            "Для пополнения баланса свяжитесь с администратором:\n"
+            "👉 @{admin_username}"
         ),
 
         "receipt_sent": "⏳ Заявка отправлена администратору.",
 
         "send_receipt": "❌ Отправьте подтверждение оплаты.",
 
-        "numbers": (
-            "📱 <b>Telegram номера</b>\n\n"
-            "Выберите страну. Цена указана за номер."
-        ),
-        "numbers_empty": "😕 Сейчас доступных номеров нет.",
-        "number_buying": "📱 Покупаем номер...",
-        "number_success": (
-            "✅ <b>Номер куплен!</b>\n\n"
-            "🌍 Страна: <b>{country}</b>\n"
-            "📞 Номер: <code>{phone}</code>\n"
-            "💰 Цена: <b>{price:,} сум</b>\n\n"
-            "🆔 Order ID: <code>{order_id}</code>"
-        ),
-        "number_waiting": (
-            "⏳ <b>SMS пока не пришло.</b>\n\n"
-            "📞 Номер: <code>{phone}</code>\n"
-            "Нажмите кнопку ещё раз через несколько секунд."
-        ),
-        "number_finished": (
-            "✅ <b>SMS получено!</b>\n\n"
-            "📞 Номер: <code>{phone}</code>\n"
-            "🔢 Код: <code>{code}</code>{password_line}\n\n"
-            "🆔 Order ID: <code>{order_id}</code>"
-        ),
-        "number_orders": "📋 <b>Мои номера</b>",
-        "number_no_orders": "📭 У вас пока нет купленных номеров.",
-        "api_error_detailed": "❌ API: {message}",
-
         "confirm_order": (
-            "🛒 <b>Проверьте заказ</b>\n\n"
+            "🛒 **Проверьте заказ**\n\n"
             "📦 Товар: {product}\n"
             "👤 Получатель: @{username}\n"
             "💰 Цена: {price:,} сум\n\n"
@@ -268,15 +224,15 @@ TEXTS = {
 
         "back": "⬅️ Orqaga",
 
-        "shop": "🛍 <b>Xizmatni tanlang:</b>",
+        "shop": "🛍 **Xizmatni tanlang:**",
 
         "stars": (
-            "💎 <b>Telegram Stars</b>\n\n"
+            "💎 **Telegram Stars**\n\n"
             "💰 Narx: 1 Stars — {price:,} so'm"
         ),
 
         "premium": (
-            "🌟 <b>Telegram Premium</b>\n\n"
+            "🌟 **Telegram Premium**\n\n"
             "Muddatni tanlang:"
         ),
 
@@ -303,55 +259,36 @@ TEXTS = {
 
         "cancelled": "❌ Bekor qilindi.",
 
+        "refill_choose": (
+            "💳 **Balansni to'ldirish usulini tanlang:**"
+        ),
+
         "refill_enter": (
             "💳 To'ldirish summasini so'mda kiriting.\n\n"
             "Masalan: 50000"
         ),
 
         "refill_payment": (
-            "💳 <b>Balansni to'ldirish</b>\n\n"
-            "💰 Balansga: <b>{amount:,} so'm</b>\n"
-            "💵 Aynan o'tkazish kerak: <b>{payment_amount:,} so'm</b>\n\n"
-            "Kartaga <b>aynan shu summani</b> o'tkazing:\n"
-            "<code>{card}</code>\n\n"
-            "To'lovdan keyin chek yuborish shart emas.\n"
+            "💳 **Karta orqali balansni to'ldirish**\n\n"
+            "💰 Balansga: **{amount:,} so'm**\n"
+            "💵 Aynan o'tkazish kerak: **{payment_amount:,} so'm**\n\n"
+            "Kartaga **aynan shu summani** o'tkazing:\n"
+            "`{card}`\n\n"
             "⏳ To'lov kelgach, balans avtomatik to'ldiriladi."
+        ),
+
+        "refill_admin": (
+            "👤 **Administrator orqali to'ldirish**\n\n"
+            "Balansni to'ldirish uchun administratorga murojaat qiling:\n"
+            "👉 @{admin_username}"
         ),
 
         "receipt_sent": "⏳ So'rov administratorga yuborildi.",
 
         "send_receipt": "❌ To'lov tasdig'ini yuboring.",
 
-        "numbers": (
-            "📱 <b>Telegram raqamlari</b>\n\n"
-            "Davlatni tanlang. Narx bitta raqam uchun."
-        ),
-        "numbers_empty": "😕 Hozircha mavjud raqamlar yo'q.",
-        "number_buying": "📱 Raqam sotib olinmoqda...",
-        "number_success": (
-            "✅ <b>Raqam sotib olindi!</b>\n\n"
-            "🌍 Davlat: <b>{country}</b>\n"
-            "📞 Raqam: <code>{phone}</code>\n"
-            "💰 Narx: <b>{price:,} so'm</b>\n\n"
-            "🆔 Order ID: <code>{order_id}</code>"
-        ),
-        "number_waiting": (
-            "⏳ <b>SMS hali kelmadi.</b>\n\n"
-            "📞 Raqam: <code>{phone}</code>\n"
-            "Bir necha soniyadan keyin yana tekshiring."
-        ),
-        "number_finished": (
-            "✅ <b>SMS keldi!</b>\n\n"
-            "📞 Raqam: <code>{phone}</code>\n"
-            "🔢 Kod: <code>{code}</code>{password_line}\n\n"
-            "🆔 Order ID: <code>{order_id}</code>"
-        ),
-        "number_orders": "📋 <b>Mening raqamlarim</b>",
-        "number_no_orders": "📭 Sizda hali sotib olingan raqamlar yo'q.",
-        "api_error_detailed": "❌ API: {message}",
-
         "confirm_order": (
-            "🛒 <b>Buyurtmani tekshiring</b>\n\n"
+            "🛒 **Buyurtmani tekshiring**\n\n"
             "📦 Mahsulot: {product}\n"
             "👤 Qabul qiluvchi: @{username}\n"
             "💰 Narx: {price:,} so'm\n\n"
@@ -400,21 +337,6 @@ def init_db():
             fingerprint TEXT PRIMARY KEY,
             payment_amount INTEGER NOT NULL,
             raw_text TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS number_orders (
-            order_id TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            country_code TEXT,
-            country_name TEXT,
-            phone TEXT,
-            price_uzs INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'waiting',
-            sms_code TEXT,
-            sms_password TEXT,
             created_at TEXT NOT NULL
         )
     """)
@@ -596,67 +518,6 @@ def get_users():
     return rows
 
 
-def save_number_order(order_id, user_id, country_code, country_name, phone, price_uzs, status="waiting"):
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    try:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO number_orders
-            (order_id, user_id, country_code, country_name, phone, price_uzs, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (order_id, user_id, country_code, country_name, phone, int(price_uzs), status, datetime.now().isoformat(timespec="seconds")),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def update_number_order(order_id, status=None, phone=None, sms_code=None, sms_password=None):
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    try:
-        fields=[]
-        values=[]
-        if status is not None:
-            fields.append("status = ?"); values.append(status)
-        if phone is not None:
-            fields.append("phone = ?"); values.append(phone)
-        if sms_code is not None:
-            fields.append("sms_code = ?"); values.append(sms_code)
-        if sms_password is not None:
-            fields.append("sms_password = ?"); values.append(sms_password)
-        if not fields:
-            return
-        values.append(order_id)
-        conn.execute(f"UPDATE number_orders SET {', '.join(fields)} WHERE order_id = ?", values)
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_number_order(order_id, user_id=None):
-    conn=sqlite3.connect(DB_FILE, timeout=20)
-    conn.row_factory=sqlite3.Row
-    try:
-        if user_id is None:
-            row=conn.execute("SELECT * FROM number_orders WHERE order_id = ?", (order_id,)).fetchone()
-        else:
-            row=conn.execute("SELECT * FROM number_orders WHERE order_id = ? AND user_id = ?", (order_id, user_id)).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def get_user_number_orders(user_id, limit=10):
-    conn=sqlite3.connect(DB_FILE, timeout=20)
-    conn.row_factory=sqlite3.Row
-    try:
-        rows=conn.execute("SELECT * FROM number_orders WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", (user_id, int(limit))).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
-
-
 def create_cardxabar_payment(user_id, requested_amount):
     if requested_amount < 1000 or requested_amount > 9_999_900:
         raise ValueError("Сумма должна быть от 1000 до 9 999 900 сум.")
@@ -769,15 +630,15 @@ def notify_user_balance(user_id, credited_amount):
         lang = user.get("lang", "ru")
         if lang == "uz":
             text = (
-                "✅ <b>Balans muvaffaqiyatli to'ldirildi!</b>\n\n"
-                f"💰 Qo'shildi: <b>{credited_amount:,} so'm</b>\n"
-                f"💳 Joriy balans: <b>{user['balance']:,} so'm</b>"
+                "✅ **Balans muvaffaqiyatli to'ldirildi!**\n\n"
+                f"💰 Qo'shildi: **{credited_amount:,} so'm**\n"
+                f"💳 Joriy balans: **{user['balance']:,} so'm**"
             )
         else:
             text = (
-                "✅ <b>Баланс успешно пополнен!</b>\n\n"
-                f"💰 Зачислено: <b>{credited_amount:,} сум</b>\n"
-                f"💳 Текущий баланс: <b>{user['balance']:,} сум</b>"
+                "✅ **Баланс успешно пополнен!**\n\n"
+                f"💰 Зачислено: **{credited_amount:,} сум**\n"
+                f"💳 Текущий баланс: **{user['balance']:,} сум**"
             )
 
         response = httpx.post(
@@ -1092,13 +953,13 @@ async def profile_callback(update, context):
 
     text = (
 
-        "👤 <b>Мой профиль</b>\n\n"
+        "👤 **Мой профиль**\n\n"
 
         f"👤 Username: @{escape(username)}\n"
 
-        f"🆔 ID: <code>{user.id}</code>\n"
+        f"🆔 ID: `{user.id}`\n"
 
-        f"💰 Баланс: <b>{data['balance']:,} сум</b>"
+        f"💰 Баланс: **{data['balance']:,} сум**"
 
     )
 
@@ -1182,8 +1043,8 @@ async def activate_promo_input(update, context):
     conn.close()
 
     await update.message.reply_text(
-        f"✅ <b>Промокод успешно активирован!</b>\n\n"
-        f"💰 Вам начислено: <b>{amount:,} сум</b>",
+        f"✅ **Промокод успешно активирован!**\n\n"
+        f"💰 Вам начислено: **{amount:,} сум**",
         parse_mode="HTML"
     )
     context.user_data.clear()
@@ -1261,7 +1122,7 @@ async def main_buttons(update, context):
 
         await query.message.edit_text(
 
-            "🌐 <b>Выберите язык / Tilni tanlang</b>",
+            "🌐 **Выберите язык / Tilni tanlang**",
 
             reply_markup=InlineKeyboardMarkup(keyboard),
 
@@ -1290,12 +1151,6 @@ async def main_buttons(update, context):
                 )
             ],
 
-            [
-                InlineKeyboardButton(
-                    "📱 Номера",
-                    callback_data="shop_numbers",
-                )
-            ],
             [
                 InlineKeyboardButton(
                     tr(user.id, "back"),
@@ -1346,7 +1201,7 @@ async def main_buttons(update, context):
             [
                 InlineKeyboardButton(
                     tr(user.id, "back"),
-                        callback_data="main_shop",
+                    callback_data="main_shop",
                 )
             ],
 
@@ -1413,58 +1268,6 @@ async def main_buttons(update, context):
 
         )
 
-        return
-
-
-    if query.data == "shop_numbers":
-        result = await get_number_countries()
-        countries = result.get("countries") or []
-        if result.get("error") and not countries:
-            await query.message.edit_text(
-                f"❌ Ошибка API номеров: {escape(str(result.get('error')))}",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")]]),
-                parse_mode="HTML",
-            )
-            return
-
-        if not countries:
-            await query.message.edit_text(
-                tr(user.id,"numbers_empty"),
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")]]),
-            )
-            return
-
-        countries = sorted(
-            countries,
-            key=lambda item: number_sale_price(int(item.get("price_uzs") or 0)),
-        )
-
-        keyboard=[]
-        for item in countries[:60]:
-            code=str(item.get("country_code") or "").upper()
-            raw_name=str(item.get("country_name") or code).strip()
-            name=re.sub(r"^[🇦-🇿]{2}\s*", "", raw_name)
-            cost=int(item.get("price_uzs") or 0)
-            qty=int(item.get("qty") or 0)
-            sale_price=number_sale_price(cost)
-            if not code or cost<=0 or sale_price<=0 or qty<=0:
-                continue
-
-            flag=country_flag(code)
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{flag} {name} — {sale_price:,} сум",
-                    callback_data=f"number_country_{code}",
-                )
-            ])
-
-        keyboard.append([InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")])
-        keyboard.append([InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")])
-        await query.message.edit_text(
-            tr(user.id,"numbers"),
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML",
-        )
         return
 
 
@@ -1560,62 +1363,6 @@ async def check_telegram_user(username: str):
     if res.get("ok") is True:
         return True,res.get("result")
     return False,res.get("message","Unknown error")
-
-
-async def sim_api_request(endpoint, params=None):
-    query = dict(params or {})
-    query["key"] = (SIM_API_KEY or "").strip().strip('"').strip("'")
-    url = f"{SIM_API_BASE_URL}{endpoint}"
-
-    try:
-        async with httpx.AsyncClient(timeout=SIM_API_TIMEOUT, follow_redirects=True) as client:
-            response = await client.get(url, params=query)
-
-        logger.info(
-            "SIM API RESPONSE | endpoint=%s | HTTP=%s | BODY=%s",
-            endpoint,
-            response.status_code,
-            response.text[:2000],
-        )
-
-        try:
-            data = response.json()
-        except Exception:
-            return {
-                "error": "SIM API вернул некорректный JSON",
-                "_http_status": response.status_code,
-            }
-
-        if not isinstance(data, dict):
-            return {
-                "error": "SIM API вернул некорректный ответ",
-                "_http_status": response.status_code,
-            }
-
-        data["_http_status"] = response.status_code
-        return data
-
-    except httpx.TimeoutException:
-        logger.error("SIM API TIMEOUT | endpoint=%s", endpoint)
-        return {"error": "SIM API: превышено время ожидания", "_http_status": 0}
-    except httpx.HTTPError as e:
-        logger.error("SIM API HTTP ERROR | endpoint=%s | error=%s", endpoint, e)
-        return {"error": str(e), "_http_status": 0}
-    except Exception as e:
-        logger.exception("SIM API ERROR | endpoint=%s | error=%s", endpoint, e)
-        return {"error": str(e), "_http_status": 0}
-
-
-async def get_number_countries():
-    return await sim_api_request("/api/countries")
-
-
-async def buy_number(country_code):
-    return await sim_api_request("/api/number", params={"code": str(country_code).lower()})
-
-
-async def get_number_code(phone):
-    return await sim_api_request("/api/sms", params={"number": str(phone)})
 
 
 async def send_order_to_partner(product_type,value,target,telegram_user_id):
@@ -1938,7 +1685,7 @@ async def buy_confirm(update, context):
             amount,
         )
         await query.message.edit_text(
-            f"❌ Ошибка при оформлении заказа.\n\n<code>{escape(str(exc))}</code>",
+            f"❌ Ошибка при оформлении заказа.\n\n`{escape(str(exc))}`",
             parse_mode="HTML",
         )
         context.user_data.clear()
@@ -1966,17 +1713,17 @@ async def buy_confirm(update, context):
 
         (
 
-            "🛒 <b>НОВЫЙ ЗАКАЗ</b>\n\n"
+            "🛒 **НОВЫЙ ЗАКАЗ**\n\n"
 
             f"📦 Товар: {escape(product)}\n"
 
             f"👤 Получатель: @{escape(username)}\n"
 
             f"💰 Цена: {price:,} сум\n"
-            f"🧾 Order ID: <code>{escape(str(order_id or 'не указан'))}</code>\n"
+            f"🧾 Order ID: `{escape(str(order_id or 'не указан'))}`\n"
 
             f"🆔 ID заказчика: "
-            f"<code>{user.id}</code>\n"
+            f"`{user.id}`\n"
 
             f"👤 Заказал: "
             f"@{escape(user.username or 'нет username')}"
@@ -1991,11 +1738,11 @@ async def buy_confirm(update, context):
 
         (
 
-            "✅ <b>Заказ успешно выполнен!</b>\n\n"
+            "✅ **Заказ успешно выполнен!**\n\n"
 
             f"📦 {escape(product)}\n"
             f"👤 Получатель: @{escape(username)}\n"
-            f"🧾 Order ID: <code>{escape(str(order_id or 'не указан'))}</code>"
+            f"🧾 Order ID: `{escape(str(order_id or 'не указан'))}`"
 
         ),
 
@@ -2009,10 +1756,28 @@ async def buy_confirm(update, context):
 
 
 # =========================================================
-# ПОПОЛНЕНИЕ
+# ПОПОЛНЕНИЕ (ВЫБОР СПОСОБА)
 # =========================================================
 
 async def refill_start(update, context):
+    query = update.callback_query
+    await query.answer()
+    context.user_data.clear()
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Автоматически через карту", callback_data="refill_card")],
+        [InlineKeyboardButton("👤 Через администратора", callback_data="refill_admin")],
+        [InlineKeyboardButton(tr(query.from_user.id, "back"), callback_data="back_main")]
+    ])
+
+    await query.message.edit_text(
+        tr(query.from_user.id, "refill_choose"),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def refill_card_start(update, context):
     query = update.callback_query
     await query.answer()
     context.user_data.clear()
@@ -2025,6 +1790,26 @@ async def refill_start(update, context):
     )
 
     return REFILL_AMOUNT
+
+
+async def refill_admin_contact(update, context):
+    query = update.callback_query
+    await query.answer()
+    context.user_data.clear()
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(tr(query.from_user.id, "back"), callback_data="main_refill")]
+    ])
+
+    await query.message.edit_text(
+        tr(
+            query.from_user.id,
+            "refill_admin",
+            admin_username=ADMIN_USERNAME
+        ),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 
 async def refill_amount(update, context):
@@ -2089,149 +1874,6 @@ async def refill_amount(update, context):
 
     context.user_data.clear()
     return ConversationHandler.END
-
-
-async def refill_check(update, context):
-
-    if not update.message.photo:
-
-        await update.message.reply_text(
-
-            tr(
-                update.effective_user.id,
-                "send_receipt",
-            )
-
-        )
-
-        return REFILL_CHECK
-
-    user = update.effective_user
-
-    amount = context.user_data.get(
-        "refill_amount",
-        0,
-    )
-
-    photo = update.message.photo[-1]
-
-    caption = (
-
-        "💳 <b>НОВОЕ ПОПОЛНЕНИЕ</b>\n\n"
-
-        f"👤 Пользователь: "
-        f"@{escape(user.username or 'нет username')}\n"
-
-        f"🆔 ID: <code>{user.id}</code>\n"
-
-        f"💰 Сумма: <b>{amount:,} сум</b>"
-
-    )
-
-    keyboard = InlineKeyboardMarkup([
-
-        [
-
-            InlineKeyboardButton(
-
-                "✅ Одобрить",
-
-                callback_data=(
-                    f"approve_refill_{user.id}_{amount}"
-                ),
-
-            ),
-
-            InlineKeyboardButton(
-
-                "❌ Отклонить",
-
-                callback_data=(
-                    f"reject_refill_{user.id}"
-                ),
-
-            ),
-
-        ]
-
-    ])
-
-    await context.bot.send_photo(
-
-        chat_id=ADMIN_ID,
-
-        photo=photo.file_id,
-
-        caption=caption,
-
-        parse_mode="HTML",
-
-        reply_markup=keyboard,
-
-    )
-
-    await update.message.reply_text(
-
-        tr(
-            user.id,
-            "receipt_sent",
-        )
-
-    )
-
-    context.user_data.clear()
-
-    return ConversationHandler.END
-
-
-async def payment_callback(update, context):
-
-    query = update.callback_query
-
-    if query.from_user.id != ADMIN_ID:
-        await query.answer("❌ Нет доступа.", show_alert=True)
-        return
-
-    await query.answer()
-
-    parts = query.data.split("_")
-
-    if query.data.startswith("approve_refill_"):
-
-        user_id = int(parts[2])
-        amount = int(parts[3])
-
-        change_balance(user_id, amount)
-
-        await context.bot.send_message(
-            user_id,
-            (
-                "✅ <b>Баланс пополнен!</b>\n\n"
-                f"💰 Сумма: {amount:,} сум"
-            ),
-            parse_mode="HTML",
-        )
-
-        await query.edit_message_caption(
-            caption=(query.message.caption or "") + "\n\n✅ ОДОБРЕНО",
-            parse_mode="HTML",
-            reply_markup=None,
-        )
-
-    elif query.data.startswith("reject_refill_"):
-
-        user_id = int(parts[2])
-
-        await context.bot.send_message(
-            user_id,
-            "❌ Пополнение отклонено.",
-        )
-
-        await query.edit_message_caption(
-            caption=(query.message.caption or "") + "\n\n❌ ОТКЛОНЕНО",
-            parse_mode="HTML",
-            reply_markup=None,
-        )
 
 
 # =========================================================
@@ -2379,7 +2021,7 @@ async def admin(update, context):
 
     await update.message.reply_text(
 
-        "🛠 <b>АДМИН-ПАНЕЛЬ</b>",
+        "🛠 **АДМИН-ПАНЕЛЬ**",
 
         reply_markup=admin_keyboard(),
 
@@ -2479,7 +2121,7 @@ async def admin_callback(update, context):
 
             return ConversationHandler.END
 
-        text = "👥 <b>ПОЛЬЗОВАТЕЛИ</b>\n\n"
+        text = "👥 **ПОЛЬЗОВАТЕЛИ**\n\n"
 
         for index, row in enumerate(users[:50], 1):
 
@@ -2511,12 +2153,12 @@ async def admin_callback(update, context):
 
             text += (
 
-                f"<b>{index}. "
-                f"{escape(name or 'Без имени')}</b>\n"
+                f"**{index}. "
+                f"{escape(name or 'Без имени')}**\n"
 
                 f"👤 {username_text}\n"
 
-                f"🆔 <code>{user_id}</code>\n"
+                f"🆔 `{user_id}`\n"
 
                 f"💰 {balance:,} сум\n"
 
@@ -2563,7 +2205,7 @@ async def admin_callback(update, context):
 
             (
 
-                "💰 <b>БАЛАНСЫ</b>\n\n"
+                "💰 **БАЛАНСЫ**\n\n"
 
                 f"👥 Пользователей: {len(users)}\n"
 
@@ -2610,7 +2252,7 @@ async def admin_callback(update, context):
 
             (
 
-                "📊 <b>СТАТИСТИКА</b>\n\n"
+                "📊 **СТАТИСТИКА**\n\n"
 
                 f"👥 Всего: {len(users)}\n"
 
@@ -2647,7 +2289,7 @@ async def admin_callback(update, context):
 
         await query.message.edit_text(
 
-            "🛠 <b>АДМИН-ПАНЕЛЬ</b>",
+            "🛠 **АДМИН-ПАНЕЛЬ**",
 
             reply_markup=admin_keyboard(),
 
@@ -2676,7 +2318,7 @@ async def admin_broadcast_text(update, context):
         try:
             await context.bot.send_message(
                 chat_id=user_id,
-                text=f"📢 <b>Рассылка:</b>\n\n{escape(text)}",
+                text=f"📢 **Рассылка:**\n\n{escape(text)}",
                 parse_mode="HTML"
             )
             success_count += 1
@@ -2684,7 +2326,7 @@ async def admin_broadcast_text(update, context):
             fail_count += 1
 
     await status_msg.edit_text(
-        f"✅ <b>Рассылка завершена!</b>\n\n"
+        f"✅ **Рассылка завершена!**\n\n"
         f"👥 Успешно отправлено: {success_count}\n"
         f"❌ Ошибок (заблокировали бота): {fail_count}",
         parse_mode="HTML"
@@ -2757,8 +2399,8 @@ async def admin_promo_users(update, context):
         conn.close()
 
     await update.message.reply_text(
-        f"✅ <b>Промокод успешно создан!</b>\n\n"
-        f"🎟 Код: <code>{escape(code)}</code>\n"
+        f"✅ **Промокод успешно создан!**\n\n"
+        f"🎟 Код: `{escape(code)}`\n"
         f"💰 Сумма: {amount:,} сум\n"
         f"👥 Лимит пользователей: {max_uses}",
         parse_mode="HTML"
@@ -2792,7 +2434,7 @@ async def admin_add_id(update, context):
 
     await update.message.reply_text(
 
-        f"➕ Пользователь: <code>{user_id}</code>\n"
+        f"➕ Пользователь: `{user_id}`\n"
         f"💰 Текущий баланс: {user['balance']:,} сум\n\n"
         "Введите сумму для добавления:",
 
@@ -2835,7 +2477,7 @@ async def admin_add_amount(update, context):
 
         (
 
-            "💰 <b>Баланс изменён администратором</b>\n\n"
+            "💰 **Баланс изменён администратором**\n\n"
 
             f"➕ Добавлено: {amount:,} сум"
 
@@ -2847,8 +2489,8 @@ async def admin_add_amount(update, context):
 
     await update.message.reply_text(
 
-        f"✅ Добавлено <b>{amount:,} сум</b>\n"
-        f"👤 ID: <code>{user_id}</code>",
+        f"✅ Добавлено **{amount:,} сум**\n"
+        f"👤 ID: `{user_id}`",
 
         parse_mode="HTML",
 
@@ -2883,7 +2525,7 @@ async def admin_sub_id(update, context):
 
     await update.message.reply_text(
 
-        f"➖ Пользователь: <code>{user_id}</code>\n"
+        f"➖ Пользователь: `{user_id}`\n"
         f"💰 Текущий баланс: {user['balance']:,} сум\n\n"
         "Введите сумму для снятия:",
 
@@ -2939,7 +2581,7 @@ async def admin_sub_amount(update, context):
 
         (
 
-            "💰 <b>Баланс изменён администратором</b>\n\n"
+            "💰 **Баланс изменён администратором**\n\n"
 
             f"➖ Снято: {amount:,} сум"
 
@@ -2951,8 +2593,8 @@ async def admin_sub_amount(update, context):
 
     await update.message.reply_text(
 
-        f"✅ Убавлено <b>{amount:,} сум</b>\n"
-        f"👤 ID: <code>{user_id}</code>",
+        f"✅ Убавлено **{amount:,} сум**\n"
+        f"👤 ID: `{user_id}`",
 
         parse_mode="HTML",
 
@@ -2995,7 +2637,7 @@ async def admin_ban_id(update, context):
 
     await update.message.reply_text(
 
-        f"✅ Пользователь <code>{user_id}</code> заблокирован.",
+        f"✅ Пользователь `{user_id}` заблокирован.",
 
         parse_mode="HTML",
 
@@ -3036,7 +2678,7 @@ async def admin_unban_id(update, context):
 
     await update.message.reply_text(
 
-        f"✅ Пользователь <code>{user_id}</code> разблокирован.",
+        f"✅ Пользователь `{user_id}` разблокирован.",
 
         parse_mode="HTML",
 
@@ -3069,7 +2711,7 @@ async def admin_message_id(update, context):
 
     await update.message.reply_text(
 
-        f"💬 ID пользователя: <code>{user_id}</code>\n\n"
+        f"💬 ID пользователя: `{user_id}`\n\n"
         "Теперь напишите сообщение:",
 
         parse_mode="HTML",
@@ -3093,7 +2735,7 @@ async def admin_message_text(update, context):
 
             (
 
-                "📩 <b>Сообщение от администратора</b>\n\n"
+                "📩 **Сообщение от администратора**\n\n"
 
                 f"{escape(text)}"
 
@@ -3121,203 +2763,6 @@ async def admin_message_text(update, context):
     context.user_data.clear()
 
     return ConversationHandler.END
-
-
-# =========================================================
-# НОМЕРА: ПОКУПКА И SMS
-# =========================================================
-
-async def number_callback(update, context):
-    query=update.callback_query
-    await query.answer()
-    user=query.from_user
-
-    if query.data=="numbers_orders":
-        orders=get_user_number_orders(user.id,10)
-        if not orders:
-            await query.message.edit_text(tr(user.id,"number_no_orders"),reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📱 Купить номер",callback_data="shop_numbers")],
-                [InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")],
-            ]))
-            return
-        text=tr(user.id,"number_orders")+"\n\n"
-        keyboard=[]
-        for order in orders:
-            phone=order.get("phone") or "номер не указан"
-            status_text="✅ SMS готов" if order.get("status")=="finished" else "⏳ Ожидание SMS"
-            country_code=str(order.get("country_code") or "").upper()
-            country_name=escape(order.get('country_name') or country_code)
-            flag=country_flag(country_code)
-            text+=(f"{flag} {country_name}\n"
-                    f"📞 <code>{escape(phone)}</code>\n{status_text}\n"
-                    f"🆔 <code>{escape(order['order_id'])}</code>\n\n")
-            keyboard.append([InlineKeyboardButton(f"📩 Проверить SMS — {phone}",callback_data=f"number_code_{order['order_id']}")])
-        keyboard.append([InlineKeyboardButton("📱 Купить ещё",callback_data="shop_numbers")])
-        keyboard.append([InlineKeyboardButton(tr(user.id,"back"),callback_data="main_shop")])
-        await query.message.edit_text(text,reply_markup=InlineKeyboardMarkup(keyboard),parse_mode="HTML")
-        return
-
-    if query.data.startswith("number_country_"):
-        country_code=query.data.split("number_country_",1)[1].lower()
-        user_data=get_user(user.id,user.username,user.first_name)
-
-        result=await get_number_countries()
-        countries=result.get("countries") or []
-        country=next((
-            item for item in countries
-            if str(item.get("country_code") or "").lower()==country_code
-        ),None)
-
-        if result.get("error") and not country:
-            await query.message.edit_text(
-                f"❌ Ошибка API номеров: {escape(str(result.get('error')))}",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Назад к номерам",callback_data="shop_numbers")]]),
-                parse_mode="HTML",
-            )
-            return
-
-        if not country:
-            await query.message.edit_text(
-                "❌ Эта страна больше недоступна.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Обновить список",callback_data="shop_numbers")]]),
-            )
-            return
-
-        raw_name=str(country.get("country_name") or country_code.upper()).strip()
-        country_name=re.sub(r"^[🇦-🇿]{2}\s*", "", raw_name)
-        api_cost=int(country.get("price_uzs") or 0)
-        sale_price=number_sale_price(api_cost)
-
-        if api_cost<=0 or sale_price<=0:
-            await query.message.edit_text("❌ API не вернул корректную цену для этой страны.")
-            return
-
-        if user_data["balance"]<sale_price:
-            await query.message.edit_text(
-                tr(user.id,"not_enough",price=sale_price,balance=user_data["balance"]),
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Назад к номерам",callback_data="shop_numbers")]]),
-            )
-            return
-
-        await query.message.edit_text(tr(user.id,"number_buying"))
-        buy_result=await buy_number(country_code)
-
-        if buy_result.get("error") or not buy_result.get("phone"):
-            error_text=str(buy_result.get("error") or "Не удалось купить номер")
-            await query.message.edit_text(
-                f"❌ Не удалось купить номер.\n\n{escape(error_text)}",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Вернуться к номерам",callback_data="shop_numbers")]]),
-                parse_mode="HTML",
-            )
-            return
-
-        phone=str(buy_result.get("phone") or "")
-        actual_cost=int(buy_result.get("price") or api_cost)
-        actual_sale_price=number_sale_price(actual_cost)
-
-        if not phone:
-            await query.message.edit_text(
-                "❌ API не вернул номер.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Назад к номерам",callback_data="shop_numbers")]]),
-            )
-            return
-
-        if user_data["balance"]<actual_sale_price:
-            logger.error(
-                "NUMBER PRICE CHANGED AFTER SIM BUY | user_id=%s | country=%s | balance=%s | sale_price=%s | api_cost=%s",
-                user.id,country_code,user_data["balance"],actual_sale_price,actual_cost,
-            )
-            await query.message.edit_text(
-                "❌ Цена номера изменилась после покупки API, и баланса недостаточно для списания.\n"
-                "Номер уже получен провайдером. Свяжитесь с администратором.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")]]),
-            )
-            return
-
-        local_order_id=f"sim-{uuid.uuid4().hex[:12]}"
-        change_balance(user.id,-actual_sale_price)
-        save_number_order(
-            local_order_id,user.id,country_code,country_name,phone,actual_sale_price,"waiting"
-        )
-
-        try:
-            await context.bot.send_message(
-                ADMIN_ID,
-                (
-                    "📱 <b>НОВЫЙ ЗАКАЗ НОМЕРА</b>\n\n"
-                    f"{country_flag(country_code)} Страна: {escape(country_name)}\n"
-                    f"📞 Номер: <code>{escape(phone)}</code>\n"
-                    f"💰 Цена для клиента: {actual_sale_price:,} сум\n"
-                    f"🏷 Себестоимость API: {actual_cost:,} сум\n"
-                    f"📈 Доход: {actual_sale_price-actual_cost:,} сум\n"
-                    f"🆔 Пользователь: <code>{user.id}</code>\n"
-                    f"👤 @{escape(user.username or 'нет username')}\n"
-                    f"🧾 ID: <code>{escape(local_order_id)}</code>"
-                ),
-                parse_mode="HTML",
-            )
-        except Exception:
-            logger.exception("NUMBER ADMIN NOTIFICATION ERROR")
-
-        keyboard=[
-            [InlineKeyboardButton("📩 Проверить SMS",callback_data=f"number_code_{local_order_id}")],
-            [InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")],
-            [InlineKeyboardButton("📱 Купить ещё",callback_data="shop_numbers")],
-        ]
-
-        await query.message.edit_text(
-            tr(user.id,"number_success",country=country_name,phone=phone,price=actual_sale_price,order_id=local_order_id),
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML",
-        )
-        return
-
-    if query.data.startswith("number_code_"):
-        local_order_id=query.data.split("number_code_",1)[1]
-        order=get_number_order(local_order_id,user.id)
-        if not order:
-            await query.message.edit_text(
-                "❌ Заказ номера не найден.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")]]),
-            )
-            return
-
-        phone=str(order.get("phone") or "")
-        if not phone:
-            await query.message.edit_text(
-                "❌ У заказа нет номера для получения SMS.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")]]),
-            )
-            return
-
-        result=await get_number_code(phone)
-        sms=str(result.get("sms") or "").strip()
-        error_text=str(result.get("error") or "").strip()
-
-        if sms:
-            password=str(result.get("password") or "").strip()
-            update_number_order(local_order_id,status="finished",phone=phone,sms_code=sms,sms_password=password)
-            password_line=f"\n🔐 Пароль: <code>{escape(password)}</code>" if password else ""
-            await query.message.edit_text(
-                tr(user.id,"number_finished",phone=phone,code=sms,password_line=password_line,order_id=local_order_id),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📩 Проверить ещё раз",callback_data=f"number_code_{local_order_id}")],
-                    [InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")],
-                ]),
-                parse_mode="HTML",
-            )
-            return
-
-        update_number_order(local_order_id,status="waiting",phone=phone)
-        waiting_text=error_text or "SMS пока не пришло. Попробуйте проверить ещё раз через несколько секунд."
-        await query.message.edit_text(
-            f"⏳ <b>SMS пока не пришло</b>\n\n📞 Номер: <code>{escape(phone)}</code>\n\n{escape(waiting_text)}",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📩 Проверить SMS",callback_data=f"number_code_{local_order_id}")],
-                [InlineKeyboardButton("📋 Мои номера",callback_data="numbers_orders")],
-            ]),
-            parse_mode="HTML",
-        )
 
 
 # =========================================================
@@ -3354,9 +2799,9 @@ def main():
 
             CallbackQueryHandler(
 
-                refill_start,
+                refill_card_start,
 
-                pattern=r"^main_refill$",
+                pattern=r"^refill_card$",
 
             ),
 
@@ -3391,26 +2836,6 @@ def main():
                     refill_amount,
 
                 )
-
-            ],
-
-            REFILL_CHECK: [
-
-                MessageHandler(
-
-                    filters.PHOTO,
-
-                    refill_check,
-
-                ),
-
-                MessageHandler(
-
-                    filters.ALL,
-
-                    refill_check,
-
-                ),
 
             ],
 
@@ -3670,23 +3095,6 @@ def main():
 
 
     # =====================================================
-    # ПОПОЛНЕНИЕ
-    # =====================================================
-
-    application.add_handler(
-
-        CallbackQueryHandler(
-
-            payment_callback,
-
-            pattern=r"^(approve_refill|reject_refill)_",
-
-        )
-
-    )
-
-
-    # =====================================================
     # АДМИН
     # =====================================================
 
@@ -3704,15 +3112,27 @@ def main():
 
 
     # =====================================================
-    # ГЛАВНЫЕ КНОПКИ
+    # ПОПОЛНЕНИЕ / ВЫБОР СПОСОБА
     # =====================================================
 
     application.add_handler(
         CallbackQueryHandler(
-            number_callback,
-            pattern=r"^(numbers_orders|number_country_.+|number_code_.+)$",
+            refill_start,
+            pattern=r"^main_refill$",
         )
     )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            refill_admin_contact,
+            pattern=r"^refill_admin$",
+        )
+    )
+
+
+    # =====================================================
+    # ГЛАВНЫЕ КНОПКИ
+    # =====================================================
 
     application.add_handler(
         CallbackQueryHandler(
