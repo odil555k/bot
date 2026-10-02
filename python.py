@@ -182,9 +182,9 @@ TEXTS = {
         "refill_payment": (
             "💳 Пополнение баланса через карту\n\n"
             "💰 На баланс: {amount:,} сум\n"
-            "💵 Перевести нужно: <code>{payment_amount:,}<code> сум\n\n"
+            "💵 Перевести нужно: `{payment_amount:,}` сум\n\n"
             "Переведите точно эту сумму на карту:\n"
-            "<code>{card}<code>\n\n"
+            "`{card}`\n\n"
             "⏳ После поступления перевода баланс будет пополнен автоматически."
         ),
 
@@ -271,9 +271,9 @@ TEXTS = {
         "refill_payment": (
             "💳 Karta orqali balansni to'ldirish\n\n"
             "💰 Balansga: {amount:,} so'm\n"
-            "💵 Aynan o'tkazish kerak: <code>{payment_amount:,}<code> so'm\n\n"
+            "💵 Aynan o'tkazish kerak: `{payment_amount:,}` so'm\n\n"
             "Kartaga aynan shu summani o'tkazing:\n"
-            "<code>{card}<code>\n\n"
+            "`{card}`\n\n"
             "⏳ To'lov kelgach, balans avtomatik to'ldiriladi."
         ),
 
@@ -957,7 +957,7 @@ async def profile_callback(update, context):
 
         f"👤 Username: @{escape(username)}\n"
 
-        f"🆔 ID: <code>{user.id}<code>\n"
+        f"🆔 ID: `{user.id}`\n"
 
         f"💰 Баланс: {data['balance']:,} сум"
 
@@ -2158,7 +2158,7 @@ async def admin_callback(update, context):
 
                 f"👤 {username_text}\n"
 
-                f"🆔 <code>{user_id}<code>\n"
+                f"🆔 `{user_id}`\n"
 
                 f"💰 {balance:,} сум\n"
 
@@ -2490,7 +2490,7 @@ async def admin_add_amount(update, context):
     await update.message.reply_text(
 
         f"✅ Добавлено {amount:,} сум\n"
-        f"👤 ID: <code>{user_id}<code>",
+        f"👤 ID: `{user_id}`",
 
         parse_mode="HTML",
 
@@ -2594,7 +2594,7 @@ async def admin_sub_amount(update, context):
     await update.message.reply_text(
 
         f"✅ Убавлено {amount:,} сум\n"
-        f"👤 ID: <code>{user_id}<code>",
+        f"👤 ID: `{user_id}`",
 
         parse_mode="HTML",
 
