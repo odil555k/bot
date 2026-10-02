@@ -182,9 +182,9 @@ TEXTS = {
         "refill_payment": (
             "💳 Пополнение баланса через карту\n\n"
             "💰 На баланс: {amount:,} сум\n"
-            "💵 Перевести нужно: `{payment_amount:,}` сум\n\n"
+            "💵 Перевести нужно: <code>{payment_amount:,}<code> сум\n\n"
             "Переведите точно эту сумму на карту:\n"
-            "`{card}`\n\n"
+            "<code>{card}<code>\n\n"
             "⏳ После поступления перевода баланс будет пополнен автоматически."
         ),
 
@@ -270,10 +270,10 @@ TEXTS = {
 
         "refill_payment": (
             "💳 Karta orqali balansni to'ldirish\n\n"
-            "💰 Balansga: **{amount:,} so'm**\n"
-            "💵 Aynan o'tkazish kerak: `{payment_amount:,}` so'm\n\n"
+            "💰 Balansga: {amount:,} so'm\n"
+            "💵 Aynan o'tkazish kerak: <code>{payment_amount:,}<code> so'm\n\n"
             "Kartaga aynan shu summani o'tkazing:\n"
-            "`{card}`\n\n"
+            "<code>{card}<code>\n\n"
             "⏳ To'lov kelgach, balans avtomatik to'ldiriladi."
         ),
 
