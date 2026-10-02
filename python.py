@@ -46,8 +46,8 @@ PARTNER_API_URL = os.environ.get(
 PARTNER_API_TIMEOUT = float(os.environ.get("PARTNER_API_TIMEOUT", "40"))
 
 # Настройки TG-Lion API для покупки номеров
-TGLION_API_KEY = os.environ.get("TGLION_API_KEY", "6eb1hkd5wm9a8i374x")
-TGLION_USER_ID = os.environ.get("TGLION_USER_ID", "6636620529")
+TGLION_API_KEY = os.environ.get("TGLION_API_KEY", "YOUR_API_KEY")
+TGLION_USER_ID = os.environ.get("TGLION_USER_ID", "Your_ID")
 TGLION_BASE_URL = "https://TG-Lion.net"
 
 # Курс перевода долларов TG-Lion в сумы (например, 1 USD = 13000 сум, настраивайте под себя)
