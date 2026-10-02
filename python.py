@@ -224,7 +224,7 @@ TEXTS = {
 
         "back": "⬅️ Orqaga",
 
-        "shop": "🛍 **Xizmatni tanlang:**",
+        "shop": "🛍 Xizmatni tanlang:",
 
         "stars": (
             "💎 Telegram Stars\n\n"
@@ -630,15 +630,15 @@ def notify_user_balance(user_id, credited_amount):
         lang = user.get("lang", "ru")
         if lang == "uz":
             text = (
-                "✅ **Balans muvaffaqiyatli to'ldirildi!**\n\n"
-                f"💰 Qo'shildi: **{credited_amount:,} so'm**\n"
-                f"💳 Joriy balans: **{user['balance']:,} so'm**"
+                "✅ Balans muvaffaqiyatli to'ldirildi!\n\n"
+                f"💰 Qo'shildi: {credited_amount:,} so'm\n"
+                f"💳 Joriy balans: {user['balance']:,} so'm"
             )
         else:
             text = (
-                "✅ **Баланс успешно пополнен!**\n\n"
-                f"💰 Зачислено: **{credited_amount:,} сум**\n"
-                f"💳 Текущий баланс: **{user['balance']:,} сум**"
+                "✅ Баланс успешно пополнен!\n\n"
+                f"💰 Зачислено: {credited_amount:,} сум\n"
+                f"💳 Текущий баланс: {user['balance']:,} сум"
             )
 
         response = httpx.post(
@@ -953,13 +953,13 @@ async def profile_callback(update, context):
 
     text = (
 
-        "👤 **Мой профиль**\n\n"
+        "👤 Мой профиль\n\n"
 
         f"👤 Username: @{escape(username)}\n"
 
-        f"🆔 ID: `{user.id}`\n"
+        f"🆔 ID: <code>{user.id}<code>\n"
 
-        f"💰 Баланс: **{data['balance']:,} сум**"
+        f"💰 Баланс: {data['balance']:,} сум"
 
     )
 
@@ -1043,8 +1043,8 @@ async def activate_promo_input(update, context):
     conn.close()
 
     await update.message.reply_text(
-        f"✅ **Промокод успешно активирован!**\n\n"
-        f"💰 Вам начислено: **{amount:,} сум**",
+        f"✅ Промокод успешно активирован!\n\n"
+        f"💰 Вам начислено: {amount:,} сум",
         parse_mode="HTML"
     )
     context.user_data.clear()
@@ -1122,7 +1122,7 @@ async def main_buttons(update, context):
 
         await query.message.edit_text(
 
-            "🌐 **Выберите язык / Tilni tanlang**",
+            "🌐 Выберите язык / Tilni tanlang",
 
             reply_markup=InlineKeyboardMarkup(keyboard),
 
@@ -1713,7 +1713,7 @@ async def buy_confirm(update, context):
 
         (
 
-            "🛒 **НОВЫЙ ЗАКАЗ**\n\n"
+            "🛒 НОВЫЙ ЗАКАЗ\n\n"
 
             f"📦 Товар: {escape(product)}\n"
 
@@ -1738,7 +1738,7 @@ async def buy_confirm(update, context):
 
         (
 
-            "✅ **Заказ успешно выполнен!**\n\n"
+            "✅ Заказ успешно выполнен!\n\n"
 
             f"📦 {escape(product)}\n"
             f"👤 Получатель: @{escape(username)}\n"
@@ -2021,7 +2021,7 @@ async def admin(update, context):
 
     await update.message.reply_text(
 
-        "🛠 **АДМИН-ПАНЕЛЬ**",
+        "🛠 АДМИН-ПАНЕЛЬ",
 
         reply_markup=admin_keyboard(),
 
@@ -2121,7 +2121,7 @@ async def admin_callback(update, context):
 
             return ConversationHandler.END
 
-        text = "👥 **ПОЛЬЗОВАТЕЛИ**\n\n"
+        text = "👥 ПОЛЬЗОВАТЕЛИ\n\n"
 
         for index, row in enumerate(users[:50], 1):
 
@@ -2153,12 +2153,12 @@ async def admin_callback(update, context):
 
             text += (
 
-                f"**{index}. "
-                f"{escape(name or 'Без имени')}**\n"
+                f"{index}. "
+                f"{escape(name or 'Без имени')}\n"
 
                 f"👤 {username_text}\n"
 
-                f"🆔 `{user_id}`\n"
+                f"🆔 <code>{user_id}<code>\n"
 
                 f"💰 {balance:,} сум\n"
 
@@ -2205,7 +2205,7 @@ async def admin_callback(update, context):
 
             (
 
-                "💰 **БАЛАНСЫ**\n\n"
+                "💰 БАЛАНСЫ\n\n"
 
                 f"👥 Пользователей: {len(users)}\n"
 
@@ -2252,7 +2252,7 @@ async def admin_callback(update, context):
 
             (
 
-                "📊 **СТАТИСТИКА**\n\n"
+                "📊 СТАТИСТИКА\n\n"
 
                 f"👥 Всего: {len(users)}\n"
 
@@ -2289,7 +2289,7 @@ async def admin_callback(update, context):
 
         await query.message.edit_text(
 
-            "🛠 **АДМИН-ПАНЕЛЬ**",
+            "🛠 АДМИН-ПАНЕЛЬ",
 
             reply_markup=admin_keyboard(),
 
@@ -2318,7 +2318,7 @@ async def admin_broadcast_text(update, context):
         try:
             await context.bot.send_message(
                 chat_id=user_id,
-                text=f"📢 **Рассылка:**\n\n{escape(text)}",
+                text=f"📢 Рассылка:\n\n{escape(text)}",
                 parse_mode="HTML"
             )
             success_count += 1
@@ -2326,7 +2326,7 @@ async def admin_broadcast_text(update, context):
             fail_count += 1
 
     await status_msg.edit_text(
-        f"✅ **Рассылка завершена!**\n\n"
+        f"✅ Рассылка завершена!\n\n"
         f"👥 Успешно отправлено: {success_count}\n"
         f"❌ Ошибок (заблокировали бота): {fail_count}",
         parse_mode="HTML"
@@ -2399,7 +2399,7 @@ async def admin_promo_users(update, context):
         conn.close()
 
     await update.message.reply_text(
-        f"✅ **Промокод успешно создан!**\n\n"
+        f"✅ Промокод успешно создан!\n\n"
         f"🎟 Код: `{escape(code)}`\n"
         f"💰 Сумма: {amount:,} сум\n"
         f"👥 Лимит пользователей: {max_uses}",
@@ -2477,7 +2477,7 @@ async def admin_add_amount(update, context):
 
         (
 
-            "💰 **Баланс изменён администратором**\n\n"
+            "💰 Баланс изменён администратором\n\n"
 
             f"➕ Добавлено: {amount:,} сум"
 
@@ -2489,8 +2489,8 @@ async def admin_add_amount(update, context):
 
     await update.message.reply_text(
 
-        f"✅ Добавлено **{amount:,} сум**\n"
-        f"👤 ID: `{user_id}`",
+        f"✅ Добавлено {amount:,} сум\n"
+        f"👤 ID: <code>{user_id}<code>",
 
         parse_mode="HTML",
 
@@ -2581,7 +2581,7 @@ async def admin_sub_amount(update, context):
 
         (
 
-            "💰 **Баланс изменён администратором**\n\n"
+            "💰 Баланс изменён администратором\n\n"
 
             f"➖ Снято: {amount:,} сум"
 
@@ -2593,8 +2593,8 @@ async def admin_sub_amount(update, context):
 
     await update.message.reply_text(
 
-        f"✅ Убавлено **{amount:,} сум**\n"
-        f"👤 ID: `{user_id}`",
+        f"✅ Убавлено {amount:,} сум\n"
+        f"👤 ID: <code>{user_id}<code>",
 
         parse_mode="HTML",
 
@@ -2735,7 +2735,7 @@ async def admin_message_text(update, context):
 
             (
 
-                "📩 **Сообщение от администратора**\n\n"
+                "📩 Сообщение от администратора\n\n"
 
                 f"{escape(text)}"
 
