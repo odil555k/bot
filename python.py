@@ -132,15 +132,15 @@ TEXTS = {
 
         "back": "⬅️ Назад",
 
-        "shop": "🛍 **Выберите услугу:**",
+        "shop": "🛍 Выберите услугу:",
 
         "stars": (
-            "💎 **Telegram Stars**\n\n"
+            "💎 Telegram Stars\n\n"
             "💰 Цена: {price:,} сум за 1 Stars"
         ),
 
         "premium": (
-            "🌟 **Telegram Premium**\n\n"
+            "🌟 Telegram Premium\n\n"
             "Выберите срок подписки:"
         ),
 
@@ -171,7 +171,7 @@ TEXTS = {
         "cancelled": "❌ Действие отменено.",
 
         "refill_choose": (
-            "💳 **Выберите способ пополнения баланса:**"
+            "💳 Выберите способ пополнения баланса:"
         ),
 
         "refill_enter": (
@@ -199,7 +199,7 @@ TEXTS = {
         "send_receipt": "❌ Отправьте подтверждение оплаты.",
 
         "confirm_order": (
-            "🛒 **Проверьте заказ**\n\n"
+            "🛒 Проверьте заказ\n\n"
             "📦 Товар: {product}\n"
             "👤 Получатель: @{username}\n"
             "💰 Цена: {price:,} сум\n\n"
@@ -227,12 +227,12 @@ TEXTS = {
         "shop": "🛍 **Xizmatni tanlang:**",
 
         "stars": (
-            "💎 **Telegram Stars**\n\n"
+            "💎 Telegram Stars\n\n"
             "💰 Narx: 1 Stars — {price:,} so'm"
         ),
 
         "premium": (
-            "🌟 **Telegram Premium**\n\n"
+            "🌟 Telegram Premium\n\n"
             "Muddatni tanlang:"
         ),
 
@@ -260,7 +260,7 @@ TEXTS = {
         "cancelled": "❌ Bekor qilindi.",
 
         "refill_choose": (
-            "💳 **Balansni to'ldirish usulini tanlang:**"
+            "💳 Balansni to'ldirish usulini tanlang:"
         ),
 
         "refill_enter": (
@@ -288,7 +288,7 @@ TEXTS = {
         "send_receipt": "❌ To'lov tasdig'ini yuboring.",
 
         "confirm_order": (
-            "🛒 **Buyurtmani tekshiring**\n\n"
+            "🛒 Buyurtmani tekshiring\n\n"
             "📦 Mahsulot: {product}\n"
             "👤 Qabul qiluvchi: @{username}\n"
             "💰 Narx: {price:,} so'm\n\n"
