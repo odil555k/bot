@@ -37,7 +37,7 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "your_username") # Укажите ваш юзернейм для связи (без @)
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "StarrPayy_support") # Укажите ваш юзернейм для связи (без @)
 
 # Partner API для автоматической покупки Telegram Stars / Premium.
 PARTNER_API_KEY = os.environ["PARTNER_API_KEY"]
@@ -55,7 +55,7 @@ DB_FILE = "bot_database.db"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
-    "5614 6812 1542 3546"
+    "5614 6835 1772 2716"
 )
 
 PRICE_PER_STAR = 220
@@ -183,7 +183,7 @@ TEXTS = {
             "💳 **Пополнение баланса через карту**\n\n"
             "💰 На баланс: **{amount:,} сум**\n"
             "💵 Перевести нужно: **{payment_amount:,} сум**\n\n"
-            "Переведите **точно эту сумму** на карту:\n"
+            "Переведите **точно эту сумму** на карту (нажмите на номер, чтобы скопировать):\n"
             "`{card}`\n\n"
             "⏳ После поступления перевода баланс будет пополнен автоматически."
         ),
@@ -272,7 +272,7 @@ TEXTS = {
             "💳 **Karta orqali balansni to'ldirish**\n\n"
             "💰 Balansga: **{amount:,} so'm**\n"
             "💵 Aynan o'tkazish kerak: **{payment_amount:,} so'm**\n\n"
-            "Kartaga **aynan shu summani** o'tkazing:\n"
+            "Kartaga **aynan shu summani** o'tkazing (nusxa olish uchun raqamga bosing):\n"
             "`{card}`\n\n"
             "⏳ To'lov kelgach, balans avtomatik to'ldiriladi."
         ),
@@ -2219,7 +2219,7 @@ async def admin_callback(update, context):
 
                     InlineKeyboardButton(
 
-                        "⬅️ Назад",
+                        "⬅️️ Назад",
 
                         callback_data="admin_back",
 
