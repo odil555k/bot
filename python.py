@@ -184,7 +184,7 @@ TEXTS = {
             "💰 На баланс: {amount:,} сум\n"
             "💵 Перевести нужно: `{payment_amount:,}` сум\n\n"
             "Переведите точно эту сумму на карту:\n"
-            "```{card}```\n\n"
+            "`{card}`\n\n"
             "⏳ После поступления перевода баланс будет пополнен автоматически."
         ),
 
@@ -957,7 +957,7 @@ async def profile_callback(update, context):
 
         f"👤 Username: @{escape(username)}\n"
 
-        f"🆔 ID: `{user.id}`\n"
+        f"🆔 ID: `{user.id}`\n\n" # Убедились, что ID обернут в косые кавычки
 
         f"💰 Баланс: {data['balance']:,} сум"
 
@@ -969,7 +969,7 @@ async def profile_callback(update, context):
 
         reply_markup=keyboard,
 
-        parse_mode="HTML",
+        parse_mode="Markdown", # Изменено на Markdown, чтобы ID копировался в 1 клик
 
     )
 
@@ -1861,7 +1861,7 @@ async def refill_amount(update, context):
             payment_amount=payment_amount,
             card=CARD_NUMBER,
         ),
-        parse_mode="HTML",
+        parse_mode="Markdown", # Изменено на Markdown для копирования карты и суммы в 1 клик
     )
 
     logger.info(
@@ -2158,7 +2158,7 @@ async def admin_callback(update, context):
 
                 f"👤 {username_text}\n"
 
-                f"🆔 `{user_id}`\n"
+                f"🆔 `{user_id}`\n" # Обернуто в обратные кавычки для копирования ID в 1 клик
 
                 f"💰 {balance:,} сум\n"
 
@@ -2188,7 +2188,7 @@ async def admin_callback(update, context):
 
             ]),
 
-            parse_mode="HTML",
+            parse_mode="Markdown", # Установлен parse_mode="Markdown" для админ-панели пользователей
 
         )
 
