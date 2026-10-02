@@ -237,7 +237,7 @@ TEXTS = {
         ),
 
         "enter_stars": (
-            "✏️ Stars miqdorini kiriting.\n\n"
+            "✏️️ Stars miqdorini kiriting.\n\n"
             "Minimum: 50\n"
             "Maksimum: 10000"
         ),
@@ -957,7 +957,7 @@ async def profile_callback(update, context):
 
         f"👤 Username: @{escape(username)}\n"
 
-        f"🆔 ID: `{user.id}`\n\n" # Убедились, что ID обернут в косые кавычки
+        f"🆔 ID: `{user.id}`\n\n"
 
         f"💰 Баланс: {data['balance']:,} сум"
 
@@ -969,7 +969,7 @@ async def profile_callback(update, context):
 
         reply_markup=keyboard,
 
-        parse_mode="Markdown", # Изменено на Markdown, чтобы ID копировался в 1 клик
+        parse_mode="Markdown",
 
     )
 
@@ -1861,7 +1861,7 @@ async def refill_amount(update, context):
             payment_amount=payment_amount,
             card=CARD_NUMBER,
         ),
-        parse_mode="Markdown", # Изменено на Markdown для копирования карты и суммы в 1 клик
+        parse_mode="Markdown",
     )
 
     logger.info(
@@ -2128,68 +2128,37 @@ async def admin_callback(update, context):
             user_id, username, name, balance, lang, banned = row
 
             username_text = (
-
-                f"@{escape(username)}"
-
+                f"@{username}"
                 if username
-
-                else
-
-                "нет username"
-
+                else "нет username"
             )
 
             status = (
-
                 "🔴 БАН"
-
                 if banned
-
-                else
-
-                "🟢 Активен"
-
+                else "🟢 Активен"
             )
 
             text += (
-
-                f"{index}. "
-                f"{escape(name or 'Без имени')}\n"
-
+                f"{index}. {name or 'Без имени'}\n"
                 f"👤 {username_text}\n"
-
-                f"🆔 `{user_id}`\n" # Обернуто в обратные кавычки для копирования ID в 1 клик
-
+                f"🆔 `{user_id}`\n"
                 f"💰 {balance:,} сум\n"
-
                 f"🌐 {lang}\n"
-
                 f"{status}\n\n"
-
             )
 
         await query.message.edit_text(
-
             text,
-
             reply_markup=InlineKeyboardMarkup([
-
                 [
-
                     InlineKeyboardButton(
-
                         "⬅️ Назад",
-
                         callback_data="admin_back",
-
                     )
-
                 ]
-
             ]),
-
-            parse_mode="Markdown", # Установлен parse_mode="Markdown" для админ-панели пользователей
-
+            parse_mode="Markdown",
         )
 
         return ConversationHandler.END
